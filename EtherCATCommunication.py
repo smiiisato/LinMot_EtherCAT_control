@@ -1,7 +1,6 @@
 import pysoem # EtherCAT communication
 # Install "pysoem": https://pysoem.readthedocs.io/en/stable/installation.html
 # Follow the following instructions to get the additional software: https://pysoem.readthedocs.io/en/stable/requirements.html
-# For Windows we reccomend Npcap
 import time
 import struct
 import multiprocessing as mp
@@ -9,78 +8,10 @@ import logging
 import os
 import traceback
 import datetime
-import _20250314a_LMDrive_Data_v3 as LMDD
+from readerwriterlock import rwlock
+import LMDrive_Data as LMDD
+import SendData as sendData
 
-
-#----------------------------------------------------------------------------------------------------
-# Data Structures Definition
-# These are mont for usage in the main function.
-# Depending on how many monitoring channels are used, the TxData_Default_Inputs_...M have to be adjusted in main.
-class TxData_Default_Inputs_0M:
-    """
-    This class is mainly for use in this 'main' function. With 0 Monitoring chennels.
-    """
-    def __init__(self, data):
-        (
-            self.StateVar,
-            self.StatusWord,
-            self.WarnWord,
-            self.DemandPosition,
-            self.ActualPosition,
-            self.DemandCurrent,
-            self.CfgStatus,
-            self.CfgIndexIn,
-            self.CfgValueIn
-        ) = struct.unpack('<HHHiiiHHi', data)
-
-    def __str__(self):
-        return (f"StateVar: {self.StateVar}, "
-                f"StatusWord: {self.StatusWord}, "
-                f"WarnWord: {self.WarnWord}, "
-                f"DemandPosition: {self.DemandPosition}, "
-                f"ActualPosition: {self.ActualPosition}, "
-                f"DemandCurrent: {self.DemandCurrent}, "
-                f"CfgStatus: {self.CfgStatus}, "
-                f"CfgIndexIn: {self.CfgIndexIn}, "
-                f"CfgValueIn: {self.CfgValueIn} "
-                )
-
-class TxData_Default_Inputs_4M:
-    """
-    This class is mainly for use in this 'main' function. With 4 Monitoring chennels.
-    """
-    def __init__(self, data):
-        (
-            self.StateVar,
-            self.StatusWord,
-            self.WarnWord,
-            self.DemandPosition,
-            self.ActualPosition,
-            self.DemandCurrent,
-            self.CfgStatus,
-            self.CfgIndexIn,
-            self.CfgValueIn,
-            self.MonCh1,
-            self.MonCh2,
-            self.MonCh3,
-            self.MonCh4
-        ) = struct.unpack('<HHHiiiHHiiiii', data)
-
-    def __str__(self):
-        return (f"StateVar: {self.StateVar}, "
-                f"StatusWord: {self.StatusWord}, "
-                f"WarnWord: {self.WarnWord}, "
-                f"DemandPosition: {self.DemandPosition}, "
-                f"ActualPosition: {self.ActualPosition}, "
-                f"DemandCurrent: {self.DemandCurrent}, "
-                f"CfgStatus: {self.CfgStatus}, "
-                f"CfgIndexIn: {self.CfgIndexIn}, "
-                f"CfgValueIn: {self.CfgValueIn}, "
-                f"MonCh1: {self.MonCh1}, "
-                f"MonCh2: {self.MonCh2}, "
-                f"MonCh3: {self.MonCh3}, "
-                f"MonCh4: {self.MonCh4} "
-                )
 
 #----------------------------------------------------------------------------------------------------
 # Error Handling
@@ -155,7 +86,7 @@ class EtherCATCommunication:
         self.stop_event.set() # Default to Set
         self.no_Parameter = no_Parameter
         self.no_Monitoring = no_Monitoring
-        self.InputLength = 18 + 8 + (4 * self.no_Monitoring)
+        self.InputLength = 18 + 8 + (4 * self.no_Monitoring)  #18 + 8 + (4 * self.no_Monitoring)
         self.data = mp.Array('i', noDev*self.InputLength) # Queue for data (Structure: TxData_Default_Inputs) ########################
         self.lock = lock
         self.data_queue = mp.Queue() # Queue for data
@@ -276,6 +207,9 @@ class EtherCATCommunication:
             self.master.state_check(pysoem.OP_STATE, 50000)
             self.master.state = pysoem.OP_STATE
             self.master.write_state()
+
+            print(f'[DEBUG] Master state: {self.master.state}')
+            print(f'[DEBUG] Slave state: {self.master.slaves[0].state}')
             
             return self.master.slaves
             
@@ -321,7 +255,7 @@ class EtherCATCommunication:
                     if slave_state[i] >= 8: # Can be deleted
                         self.info_queue.put(f'{datetime.datetime.now()} - Connection to Salve {i} lost {slave_state[i]} times in a row') if self.mp_log >= 20 else None # Can be deleted
                     if slave_state[i] >= self.MAX_SLAVE_COMM_ATTEMPTS:
-                        raise RuntimeError(f'Salve {i} is not in Operational State anymore.')
+                        raise RuntimeError(f'Slave {i} is not in Operational State anymore.')
 
                 # Send/Receive process data
                 self.master.send_processdata()
@@ -356,11 +290,11 @@ class EtherCATCommunication:
                     # Process the update queue if new Rx data is available
                     if not self.update_queue.empty():
                         try:
-                            while not self.update_queue.empty(): # Empty queue to get the latest value from 
+                            while not self.update_queue.empty(): # Empty queue to get the latest value from queue
                                 new_rx_data = self.update_queue.get_nowait()
                             if isinstance(new_rx_data, list) and len(new_rx_data) == len(slaves):
                                 for i, rx_data_instance in enumerate(new_rx_data):
-                                    slaves[i].output = rx_data_instance 
+                                    slaves[i].output = rx_data_instance
                         except Exception as e:
                             self.error_queue.put(f'{datetime.datetime.now()} - Unexpected error while Sending Data: {e}') if self.mp_log >= 40 else None
                 
@@ -443,99 +377,3 @@ class EtherCATCommunication:
                 logging.error('Communication process did not terminate within the timeout period.')
             else:
                 logging.info('EtherCAT communication process stopped successfully.')
-
-
-#----------------------------------------------------------------------------------------------------
-# Main Execution
-def main() -> None:
-    """
-    Main function to test the EtherCAT communication. It displays the received values from the slaves
-    without sending any commands. The user needs to update the adapter_id, noDev, and cycle_time as per their setup.
-    """
-    # Configuration parameters
-    #adapter_id = '\\Device\\NPF_{F9600FA0-8A4E-41C1-AEA3-976092EB012E}' # Replace with actual adapter ID
-    adapter_id = 'enx4cea4161b64f'
-    noDev: int = 1 # Number of expected EtherCAT devices
-    cycle_time: float = 0.015 # Cycle time in seconds
-    no_Monitoring: int = 4 # How many Monitoring Channels do you want to recieve. Please change "TxData_Default_Inputs_...M" accordingly
-    no_Parameter: int = 4 # How many Parameter Channels do you want to send
-    Activate_LMDrive_Data: bool = False # If the recieved data has to be processed inside the LMDrive_Data calss (Lower performance if True)
-    mp_logging: int = 50 # Logging level for multiprocessing
-    
-    lock = mp.Lock()  # Lock for synchronizing access to the data array
-    
-    # Create an instance of the EtherCATCommunication class
-    ethercat_comm = EtherCATCommunication(adapter_id, noDev, cycle_time, lock, no_Monitoring, no_Parameter, Activate_LMDrive_Data, mp_logging)
-
-    # Start the EtherCAT communication process
-    try:
-        ethercat_comm.start()
-        
-        if ethercat_comm.comm_proc and ethercat_comm.comm_proc.is_alive(): # Check if communication has been established
-            # Wait for the communication to work, if it doesn't work within a certain amount of time termintate the process.
-            j = 1
-            while bool(j):
-                EC_is_running = not ethercat_comm.stop_event.wait(timeout=1)
-                print(f'Wait for the master to establish communication with the drive.')
-                if not EC_is_running:
-                    time.sleep(0.2)
-                    j += 1
-                    if j > 20:
-                        EC_is_running = False
-                        j = 0
-                else:
-                    j = 0
-        if not EC_is_running:
-            while not ethercat_comm.error_queue.empty(): print(f'Error: {ethercat_comm.error_queue.get()}')
-            while not ethercat_comm.info_queue.empty(): print(f'Info: {ethercat_comm.info_queue.get()}')
-            raise RuntimeError(f'Communication could not be established')
-            
-        # Simulate running the communication until stopped with Ctrl+C
-        print('EtherCAT communication running... Press Ctrl+C to stop.')
-        time.sleep(3)
-        if Activate_LMDrive_Data:
-            for i in range(noDev):
-                print(f"Drive Type {i} = {ethercat_comm.lm_drive_data_dict[i+1].config['drive_type']}")
-        data_length = ethercat_comm.InputLength
-        while not ethercat_comm.stop_event.is_set():
-            try:
-                # Allow the communication to run, checking for external events
-                while not ethercat_comm.error_queue.empty(): print(f'Error: {ethercat_comm.error_queue.get()}')
-                while not ethercat_comm.info_queue.empty(): print(f'Info: {ethercat_comm.info_queue.get()}')
-                
-                if Activate_LMDrive_Data:
-                    with lock:
-                        for i in range(noDev):
-                            print(f'--D{i} = {ethercat_comm.lm_drive_data_dict[i+1]}')
-                else:
-                    with lock:
-                        all_slave_data = ethercat_comm.data[:]
-                    for i in range(noDev):
-                        print(f'Received data from device {i}: {TxData_Default_Inputs_4M(bytes(all_slave_data[i*data_length:(i+1)*data_length]))}')
-                
-                time.sleep(1)
-
-            except Exception as e:
-                logging.error(e)
-                ethercat_comm.stop_event.set()
-                    
-            except KeyboardInterrupt:
-                logging.info('Keyboard interrupt received, stopping EtherCAT communication.')
-                ethercat_comm.stop_event.set()  # Signal the communication process to stop
-                break
-
-    finally:
-        # Print all Error Statements
-        while not ethercat_comm.error_queue.empty(): print(f'Error: {ethercat_comm.error_queue.get()}')
-        while not ethercat_comm.info_queue.empty(): print(f'Info: {ethercat_comm.info_queue.get()}')
-        # Ensure that the EtherCAT communication process is stopped properly
-        logging.info("Stop EtherCAT communication.")
-        ethercat_comm.stop()
-        input("Press enter to exit;")
-
-
-if __name__ == "__main__":
-    logging.basicConfig(format='%(levelname)s:%(message)s', level=logging.DEBUG)
-    main()
-
-

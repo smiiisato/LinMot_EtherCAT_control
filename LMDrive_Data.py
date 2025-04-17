@@ -16,6 +16,8 @@ class LMDrive_Data:
             'unit_scale': 10000.0,
             'modulo_factor': 360000,
             'fc_force_scale': 0.1,
+            'analog_diff_voltage_scale': 0.0048828125, # V/bit
+            'analog_voltage_scale': 0.00244140625, # V/bit
             'fc_torque_scale': 0.00057295779513082,
             'drive_name': "LMDrive",
             'drive_type': "0" #"Undefined"
@@ -34,7 +36,10 @@ class LMDrive_Data:
             'actual_position': 0.0,
             'difference_position': 0.0,
             'actual_current': 0.0,
-            'nr_of_revolutions': 0
+            'nr_of_revolutions': 0,
+            'meaured_force': 0.0,
+            'analog_diff_voltage': 0.0,
+            'analog_voltage': 0.0,
         }
         
         self.outputs = {
@@ -98,13 +103,22 @@ class LMDrive_Data:
         self.status['actual_position'] = ctypes.c_int32(self.inputs['actual_pos']).value / self.config['unit_scale']
         self.status['difference_position'] = round(self.status['demand_position'] - self.status['actual_position'], 4)
         self.status['actual_current'] = ctypes.c_int16(self.inputs['demand_curr']).value / 1000.0
+
+        # measured force
+        self.status['measured_force'] = ctypes.c_int32(self.inputs['mon_ch1']).value * self.config['fc_force_scale']  # N
+
+        # update analog diff voltage
+        self.status['analog_diff_voltage'] = ctypes.c_int32(self.inputs['mon_ch2']).value * self.config['analog_diff_voltage_scale']  # V
+
+        # update analog voltage
+        self.status['analog_voltage'] = ctypes.c_int32(self.inputs['mon_ch3']).value * self.config['analog_voltage_scale']  # V
         
     def unpack_inputs(self, data):
         """
         Unpack input data from a binary structure, adjusting for the number of monitoring channels.
         """
         base_format = '<HHHiiiHHi'  # Format for fixed fields
-        mon_channel_format = 'i' * self.num_mon_ch  # Format for dynamic monitoring channels
+        mon_channel_format = 'i' * self.num_mon_ch  # Format for dynamic monitoring channels # H = unsigned 16-bit int
         full_format = base_format + mon_channel_format  # Combine formats
         
         unpacked_data = struct.unpack(full_format, data)
@@ -125,6 +139,11 @@ class LMDrive_Data:
         # Assign monitoring channels dynamically
         for i, value in enumerate(mon_channels, start=1):
             self.inputs[f'mon_ch{i}'] = value
+            signed_value = self.uint16_to_sint16(value)
+            self.inputs[f'mon_ch{i}'] = signed_value
+
+    def uint16_to_sint16(self, val):
+        return val - 0x10000 if val >= 0x8000 else val
 
     def unpack_outputs(self, data):
         """
@@ -194,15 +213,21 @@ class LMDrive_Data:
         return struct.pack(full_format, *data_to_pack)
 
     def __str__(self):
-        return (f"StateVar: {self.inputs['state_var']}, "
-                f"StatusWord: {self.inputs['status_word']}, "
-                f"WarnWord: {self.inputs['warn_word']}, "
-                f"DemandPosition: {self.inputs['demand_pos']}, "
-                f"ActualPosition: {self.inputs['actual_pos']}, "
-                f"DemandCurrent: {self.inputs['demand_curr']}, "
-                f"CfgStatus: {self.inputs['cfg_status']}, "
-                f"CfgIndexIn: {self.inputs['cfg_index_in']}, "
-                f"CfgValueIn: {self.inputs['cfg_value_in']}, "
+        return (f"Operation_Enabled: {self.status['operation_enabled']}, "
+                f"SwitchOn_Locked: {self.status['switch_on_locked']}, "
+                f"Homed: {self.status['homed']}, "
+                f"Motion_Active: {self.status['motion_active']}, "
+                f"Jogging: {self.status['jogging']}, "
+                f"Warning: {self.status['warning']}, "
+                f"Error: {self.status['error']}, "
+                f"Error_Code: {self.status['error_code']}, "
+                f"Demand_Position: {self.status['demand_position']}, "
+                f"Actual_Position: {self.status['actual_position']}, "
+                f"Difference_Position: {self.status['difference_position']}, "
+                f"Actual_Current: {self.status['actual_current']}, "
+                f"Measured_Force: {self.status['measured_force']}, "
+                f"Analog_Diff_Voltage: {self.status['analog_diff_voltage']}, "
+                f"Analog_Voltage: {self.status['analog_voltage']}, "
                 f"MonCh1: {self.inputs['mon_ch1']}, "
                 f"MonCh2: {self.inputs['mon_ch2']}, "
                 f"MonCh3: {self.inputs['mon_ch3']}, "
