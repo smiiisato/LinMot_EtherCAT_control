@@ -19,6 +19,7 @@ class LMDrive_Data:
             'analog_diff_voltage_scale': 0.0048828125, # V/bit
             'analog_voltage_scale': 0.00244140625, # V/bit
             'fc_torque_scale': 0.00057295779513082,
+            'load_cell_scale': 19.6133, # N/V
             'drive_name': "LMDrive",
             'drive_type': "0" #"Undefined"
         }
@@ -39,7 +40,9 @@ class LMDrive_Data:
             'nr_of_revolutions': 0,
             'meaured_force': 0.0,
             'analog_diff_voltage': 0.0,
+            'analog_diff_voltage_filtered': 0.0,
             'analog_voltage': 0.0,
+            'estimated_force_analog_filtered': 0.0,
         }
         
         self.outputs = {
@@ -109,16 +112,21 @@ class LMDrive_Data:
 
         # update analog diff voltage
         self.status['analog_diff_voltage'] = ctypes.c_int32(self.inputs['mon_ch2']).value * self.config['analog_diff_voltage_scale']  # V
+        # update filtered analog diff voltage
+        self.status['analog_diff_voltage_filtered'] = ctypes.c_float(self.inputs['mon_ch4']).value * self.config['analog_diff_voltage_scale']  # V
 
         # update analog voltage
         self.status['analog_voltage'] = ctypes.c_int32(self.inputs['mon_ch3']).value * self.config['analog_voltage_scale']  # V
+
+        # update estimated force
+        self.status['estimated_force_analog_filtered'] = self.status['analog_diff_voltage_filtered'] * self.config['load_cell_scale']  # N
         
     def unpack_inputs(self, data):
         """
         Unpack input data from a binary structure, adjusting for the number of monitoring channels.
         """
         base_format = '<HHHiiiHHi'  # Format for fixed fields
-        mon_channel_format = 'i' * self.num_mon_ch  # Format for dynamic monitoring channels # H = unsigned 16-bit int
+        mon_channel_format = 'i' * self.num_mon_ch
         full_format = base_format + mon_channel_format  # Combine formats
         
         unpacked_data = struct.unpack(full_format, data)
@@ -139,11 +147,25 @@ class LMDrive_Data:
         # Assign monitoring channels dynamically
         for i, value in enumerate(mon_channels, start=1):
             self.inputs[f'mon_ch{i}'] = value
-            signed_value = self.uint16_to_sint16(value)
+            if i < 4: 
+                signed_value = self.uint16_to_sint16(value)
+            else:
+                signed_value = self.int32_to_floatieee754(value)
             self.inputs[f'mon_ch{i}'] = signed_value
 
     def uint16_to_sint16(self, val):
+        """
+        Converts a 16-bit unsigned integer to a signed integer.
+        """
         return val - 0x10000 if val >= 0x8000 else val
+    
+    def int32_to_floatieee754(self, val):
+        """
+        Converts a signed 32-bit integer to a float using IEEE 754 format.
+        """
+        import struct
+        packed_val = struct.pack('<i', val)  # pack as int32 (little endian)
+        return struct.unpack('<f', packed_val)[0]
 
     def unpack_outputs(self, data):
         """
@@ -227,7 +249,9 @@ class LMDrive_Data:
                 f"Actual_Current: {self.status['actual_current']}, "
                 f"Measured_Force: {self.status['measured_force']}, "
                 f"Analog_Diff_Voltage: {self.status['analog_diff_voltage']}, "
+                f"Analog_Diff_Voltage_Filtered: {self.status['analog_diff_voltage_filtered']}, "
                 f"Analog_Voltage: {self.status['analog_voltage']}, "
+                f"Estimated_Force: {self.status['estimated_force_analog_filtered']}, "
                 f"MonCh1: {self.inputs['mon_ch1']}, "
                 f"MonCh2: {self.inputs['mon_ch2']}, "
                 f"MonCh3: {self.inputs['mon_ch3']}, "
