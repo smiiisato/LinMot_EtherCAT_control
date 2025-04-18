@@ -14,6 +14,8 @@ import csv
 import LMDrive_Data as LMDD
 import SendData as sendData
 import numpy as np
+import threading
+import ctypes
 from EtherCATCommunication import EtherCATCommunication
 
 class main_test():
@@ -56,13 +58,10 @@ class main_test():
         self.lm_drive_data_updated = 0
         self.device_data_old = 0
         self.oszi_file_nr = 0
+        self.config = None
         
         self.lm_drive_lock = rwlock.RWLockFairD()
         self.manager = mp.Manager()
-
-        self.measured_force_list = np.array([]) # List to store measured force values
-        self.analog_diff_voltage_list = np.array([]) # List to store analog differential voltage values
-        self.time_axis = np.array([]) # List to store time axis values
 
     def start(self):
         """
@@ -77,7 +76,7 @@ class main_test():
             KeyboardInterrupt: If the process is interrupted manually.
         """
         # Create an instance of the EtherCATCommunication class
-        self.ethercat_comm = EtherCATCommunication(self.adapter_id, self.noDev, self.cycle_time, self.lock, self.no_Monitoring, self.no_Parameter, self.Activate_LMDrive_Data, self.mp_logging)
+        self.ethercat_comm = EtherCATCommunication(self.adapter_id, self.noDev, self.cycle_time, self.lock, self.no_Monitoring, self.no_Parameter, self.mp_logging)
         
         # Start the EtherCAT communication process
         try:
@@ -110,10 +109,14 @@ class main_test():
             else:
                 for i in range(self.noDev): # Create LMDrive_Data
                     self.lm_drive_data_dict[i+1] = LMDD.LMDrive_Data(num_mon_channels=self.no_Monitoring, num_par_channels=self.no_Parameter)
+            self.config = self.lm_drive_data_dict[1].config
             self.data_length = self.ethercat_comm.InputLength
             
-            # The following functions can also be run paralel with threadding
-            self.loop_print_data(max_cycles=2) # Execute this loop for 5 cycles
+            # Start loop_print_data in a background thread
+            print_thread = threading.Thread(target=self.loop_print_data, daemon=True)
+            print_thread.start()
+
+            # start the actuation
             self.test_command_table()
             
         except Exception as e:
@@ -134,38 +137,24 @@ class main_test():
             input("Press enter to exit;")
             
             
-    def loop_print_data(self, max_cycles):
+    def loop_print_data(self):
         """
-        Prints the communication data in a loop.
-
-        This method fetches data from the EtherCAT communication process, processes it,
-        and prints the data for each connected device.
-
-        Parameters:
-            max_cycles (int): The number of cycles to print the data. If max_cycles is 1, it will print the data once;
-                                otherwise, it will continue until the maximum cycle count is reached.
-
-        Functionality:
-            - Prints received data for each connected device.
-            - Processes input data and updates LMDrive data.
+        Continuously prints communication data in the background.
         """
-        print(f'Loop print data for {self.noDev} devices')
-        no_of_cycles = 1
-        start_time = time.time()
-
-        while not self.ethercat_comm.stop_event.is_set() and no_of_cycles <= max_cycles:
-            no_of_cycles += 1
+        print(f'Background data printing started for {self.noDev} devices')
+        while not self.ethercat_comm.stop_event.is_set():
             self.print_comm_messages()
-            
+
             with self.lock:
                 all_slave_data = self.ethercat_comm.data[:]
             self.process_input_data()
+
             with self.lm_drive_lock.gen_rlock():
                 for i in range(self.noDev):
-                    print(f'Received data from device {i+1}: \n{self.lm_drive_data_dict[i+1]}')
+                    print(f'Received data from device {i + 1}: \n{self.lm_drive_data_dict[i + 1]}')
+
             print('\n')
-            
-            time.sleep(0.5 if max_cycles != 1 else 0) # Do not sleep if max_cycles=1 # change from 1 to 0.1 for testing
+            time.sleep(1)
     
 
     def test_command_table(self):
@@ -182,9 +171,6 @@ class main_test():
         # Setup
         sleep_time_cycle = max(self.cycle_time, 0.001)
         
-        # Print current motor Data
-        self.loop_print_data(max_cycles=1)
-        
         # Swich On Motor
         self.process_input_data() # Recieve most current data
         with self.lm_drive_lock.gen_rlock():
@@ -199,8 +185,6 @@ class main_test():
                 motor_started = self.lm_drive_data_dict[1].status['operation_enabled']
             #print('wait for motor to start...')
         print(f'Motor swiched on')
-        self.loop_print_data(max_cycles=1)
-        print('hello')
         
         # Home Motor
         self.process_input_data()
@@ -231,7 +215,6 @@ class main_test():
         if homing_started:
             sendData.end_home_motor(self, active_drive_number=1)
         print(f'Motor homed')
-        self.loop_print_data(max_cycles=1)
 
         time.sleep(0.1) # Wait to make sure that eveything is updated
         
@@ -253,10 +236,10 @@ class main_test():
 
         time.sleep(40)
 
-        # save oscilloscope data
-        self.save_oszi(filename='Oszi_recoding')
         # Stop oscilloscope reading
         self.ethercat_comm.data_queue_ON.clear()
+        # save oscilloscope data
+        self.save_oszi(filename='Oszi_recoding')
         
         # Swich Off Motor
         self.process_input_data()
@@ -271,7 +254,6 @@ class main_test():
             with self.lm_drive_lock.gen_rlock():
                 motor_started = self.lm_drive_data_dict[1].status['operation_enabled']
         print(f'Motor swiched off')
-        self.loop_print_data(max_cycles=1)
         
     def print_comm_messages(self):
         """
@@ -470,19 +452,21 @@ class main_test():
             # Extract the data for the current device based on its index
             device_data_chunk = raw_data[0:self.data_length] # the device number is 1 always
             unpacked_dict = self.unpack_input_data(device_data_chunk)
+            # Update the calculated fields
+            status = self.update_calculated_fields_from_inputs(unpacked_dict)
 
             # Write the header once and then the data for this device
             if not header_written:
-                csv_data.append(list(unpacked_dict.keys()))
+                csv_data.append(list(status.keys()))
                 header_written = True
-            csv_data.append(list(unpacked_dict.values()))
+            csv_data.append(list(status.values()))
 
-            # Write the CSV data for this device
-            with open(device_filename, 'w', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerows(csv_data)
+        # Write the CSV data for this device
+        with open(device_filename, 'w', newline='') as f:
+            writer = csv.writer(f)
+            writer.writerows(csv_data)
 
-            print(f"Saved {len(raw_data_list)} entries to {device_filename}")
+        print(f"Saved {len(raw_data_list)} entries to {device_filename}")
 
         # Increment file number for the next time
         self.oszi_file_nr += 1
@@ -501,11 +485,32 @@ class main_test():
             dict: A dictionary containing the unpacked data, with keys corresponding to the device's status
                     and monitoring channels.
         """
+        def uint16_to_sint16(val):
+            """
+            Converts a 16-bit unsigned integer to a signed integer.
+            """
+            return val - 0x10000 if val >= 0x8000 else val
+        
+        def int32_to_floatieee754(val):
+            """
+            Converts a signed 32-bit integer to a float using IEEE 754 format.
+            """
+            import struct
+            packed_val = struct.pack('<i', val)  # pack as int32 (little endian)
+            return struct.unpack('<f', packed_val)[0]
+        
         base_format = '<HHHiiiHHi'
         mon_channel_format = 'i' * self.no_Monitoring
         full_format = base_format + mon_channel_format
 
         unpacked = struct.unpack(full_format, data)
+
+        # Convert the monitoring channels to signed integers
+        unpacked = list(unpacked)
+        for i in range(len(unpacked) - self.no_Monitoring, len(unpacked) - 1):
+            unpacked[i] = uint16_to_sint16(unpacked[i])
+        # Convert the 32-bit signed integers to floats
+        unpacked[-1] = int32_to_floatieee754(unpacked[-1])
 
         base_keys = [
             'state_var',
@@ -523,6 +528,45 @@ class main_test():
         all_keys = base_keys + mon_keys
 
         return dict(zip(all_keys, unpacked))
+    
+    def update_calculated_fields_from_inputs(self, inputs):
+        """
+        Calculates derived status values from given input dictionary and config,
+        and returns a status dictionary.
+        """
+        status = {}
+
+        unit_scale = self.config['pos_scale_numerator'] / self.config['pos_scale_denominator']
+
+        # Update status fields based on inputs
+        status['operation_enabled'] = bool(inputs['status_word'] & 0x0001)
+        status['switch_on_locked'] = bool(inputs['status_word'] & 0x0040)
+        status['homed'] = bool(inputs['status_word'] & 0x0800)
+        status['motion_active'] = bool(inputs['status_word'] & 0x2000)
+        status['warning'] = bool(inputs['status_word'] & 0x0080)
+        status['error'] = bool(inputs['status_word'] & 0x0008)
+
+        # Check error state
+        if inputs['state_var'] & 0xFF00 == 0x0400:
+            status['error_code'] = inputs['state_var'] & 0x00FF
+        else:
+            status['error_code'] = 0x00
+
+        # Scaled physical values
+        status['demand_position'] = ctypes.c_int32(inputs['demand_pos']).value / unit_scale
+        status['actual_position'] = ctypes.c_int32(inputs['actual_pos']).value / unit_scale
+        status['difference_position'] = round(status['demand_position'] - status['actual_position'], 4)
+        status['actual_current'] = ctypes.c_int16(inputs['demand_curr']).value / 1000.0
+
+        status['measured_force'] = ctypes.c_int32(inputs['mon_ch1']).value * self.config['fc_force_scale']
+        status['analog_diff_voltage'] = ctypes.c_int32(inputs['mon_ch2']).value * self.config['analog_diff_voltage_scale']
+        status['analog_diff_voltage_filtered'] = ctypes.c_float(inputs['mon_ch4']).value * self.config['analog_diff_voltage_scale']  # V
+        status['analog_voltage'] = ctypes.c_int32(inputs['mon_ch3']).value * self.config['analog_voltage_scale']
+        # calculate the estimated force from analog_diff_voltage filtered
+        status['estimated_analog_force'] = status['analog_diff_voltage_filtered'] * self.config['load_cell_scale']  # N
+
+        return status
+
 
 
 if __name__ == "__main__":
