@@ -61,7 +61,7 @@ class EtherCATCommunication:
         
     """
     
-    def __init__(self, adapter_id:str, noDev:int, cycle_time:float, lock:mp.Lock, no_Monitoring:int=0, no_Parameter:int=0, Activate_LMDrive_Data:bool=False, mp_logging:int=0):
+    def __init__(self, adapter_id:str, noDev:int, cycle_time:float, lock:mp.Lock, no_Monitoring:int=0, no_Parameter:int=0, mp_logging:int=0):
         """
         Initializes the EtherCATCommunication class with the given parameters.
 
@@ -102,9 +102,6 @@ class EtherCATCommunication:
         self.MAX_CYCLE_OVERRUN: int = 20
         self.MAX_SLAVE_COMM_ATTEMPTS: int = 10
         
-        self.Activate_LMDrive_Data = Activate_LMDrive_Data
-        if self.Activate_LMDrive_Data:
-            self.lm_drive_data_dict = manager.dict({i+1: LMDD.LMDrive_Data(no_Monitoring, no_Parameter) for i in range(self.noDev)})
         
     def check_values(self):
         """
@@ -229,14 +226,6 @@ class EtherCATCommunication:
             self.error_queue.put(f'{datetime.datetime.now()} - Communication could not be established with slaves / drives.') if self.mp_log >= 40 else None
             return
         
-        if self.Activate_LMDrive_Data: # Add drive type to each LMDrive Data
-            with self.lock:
-                for i in range(self.noDev):
-                    drive_type = self.slave_name[i]
-                    lm_data = self.lm_drive_data_dict[i+1]
-                    lm_data.config['drive_type'] = drive_type # Modify its 'drive_type' inside config
-                    self.lm_drive_data_dict[i+1] = lm_data
-        
         self.info_queue.put(f'Setup communication successful.') if self.mp_log >= 20 else None
         overrun_count = 0
         self.data_queue_ON.clear() # Default Oszi recording off!
@@ -263,45 +252,24 @@ class EtherCATCommunication:
 
                 # Collect data from all slaves
                 all_data = [input_data for slave in slaves for input_data in slave.input]
-                
-                # Process Data
-                if self.Activate_LMDrive_Data:
-                    if self.lock.acquire(timeout=lock_timeout):
-                        for i in range(self.noDev):
-                            # Put the data into the lm_drive_data_dict
-                            device_data = bytes(all_data[i*self.InputLength:(i+1)*self.InputLength])
-                            lm_data = self.lm_drive_data_dict[i+1] # Extract the object
-                            lm_data.unpack_inputs(device_data) # Modify the object
-                            lm_data.update_calculated_fields()
-                            self.lm_drive_data_dict[i+1] = lm_data # Reassign it back to the dictionary
-                            
-                            # Write Data from LMDrive_Data to Drive
-                            packed_data = self.lm_drive_data_dict[i+1].pack_outputs() # Pack the processed data for sending
-                            slaves[i].output = packed_data # Send packed data to the corresponding slave
-                        self.lock.release()
-                else:
-                    # Put the received data into the data array
-                    if self.lock.acquire(timeout=lock_timeout):
-                        self.data[:] = all_data[:]
-                        self.lock.release()
-                    if self.data_queue_ON.is_set():
-                        self.data_queue.put(all_data)
-
-                    # Process the update queue if new Rx data is available
-                    if not self.update_queue.empty():
-                        try:
-                            while not self.update_queue.empty(): # Empty queue to get the latest value from queue
-                                new_rx_data = self.update_queue.get_nowait()
-                            if isinstance(new_rx_data, list) and len(new_rx_data) == len(slaves):
-                                for i, rx_data_instance in enumerate(new_rx_data):
-                                    slaves[i].output = rx_data_instance
-                        except Exception as e:
-                            self.error_queue.put(f'{datetime.datetime.now()} - Unexpected error while Sending Data: {e}') if self.mp_log >= 40 else None
-                
-                
+        
+                # Put the received data into the data array
+                if self.lock.acquire(timeout=lock_timeout):
+                    self.data[:] = all_data[:]
+                    self.lock.release()
                 if self.data_queue_ON.is_set():
-                    # Put the received data into the queue (if active)
                     self.data_queue.put(all_data)
+
+                # Process the update queue if new Rx data is available
+                if not self.update_queue.empty():
+                    try:
+                        while not self.update_queue.empty(): # Empty queue to get the latest value from queue
+                            new_rx_data = self.update_queue.get_nowait()
+                        if isinstance(new_rx_data, list) and len(new_rx_data) == len(slaves):
+                            for i, rx_data_instance in enumerate(new_rx_data):
+                                slaves[i].output = rx_data_instance
+                    except Exception as e:
+                        self.error_queue.put(f'{datetime.datetime.now()} - Unexpected error while Sending Data: {e}') if self.mp_log >= 40 else None
                     
                 # Handle cycle time
                 elapsed_time = time.perf_counter() - start_time
