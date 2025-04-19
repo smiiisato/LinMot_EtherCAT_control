@@ -45,7 +45,7 @@ class main_test():
         # Configuration parameters - Setup
         self.adapter_id = 'enx606d3cf95ad1'
         self.noDev: int = 1 # Number of expected EtherCAT devices
-        self.cycle_time: float = 0.050 # Cycle time in seconds
+        self.cycle_time: float = 0.003 # Cycle time in seconds
         self.no_Monitoring: int = 4 # How many Monitoring Channels do you want to recieve. Please change "TxData_Default_Inputs_...M" accordingly
         self.no_Parameter: int = 0 # How many Parameter Channels do you want to send
         self.Activate_LMDrive_Data: bool = False # This script works only when set to False
@@ -62,6 +62,11 @@ class main_test():
         
         self.lm_drive_lock = rwlock.RWLockFairD()
         self.manager = mp.Manager()
+
+        # flag to print the status of the drive
+        self.print_drive_status = False
+        # flag to save the oscilloscope data
+        self.ozsi_on = True
 
     def start(self):
         """
@@ -113,8 +118,12 @@ class main_test():
             self.data_length = self.ethercat_comm.InputLength
             
             # Start loop_print_data in a background thread
-            print_thread = threading.Thread(target=self.loop_print_data, daemon=True)
-            print_thread.start()
+            if self.print_drive_status:
+                print_thread = threading.Thread(target=self.loop_print_data, daemon=True)
+                print_thread.start()
+            else: # Print only error messages
+                print_thread = threading.Thread(target=self.print_comm_messages, daemon=True)
+                print_thread.start()
 
             # start the actuation
             self.test_command_table()
@@ -159,11 +168,7 @@ class main_test():
 
     def test_command_table(self):
         """
-        Executes a simple motion sequence for the connected motor.
-
-        This method handles switching on the motor, homing the motor, and moving the motor to a target position.
-        It also manages the motor control commands like enabling operation, homing, and stopping.
-        Additionally, it interacts with an oscilloscope for data logging during the motion sequence.
+        Switches on the motor -> homes it -> trigger the command table -> switches off the motor.
 
         Raises:
             RuntimeError: If motion cannot be completed.
@@ -188,7 +193,6 @@ class main_test():
         
         # Home Motor
         self.process_input_data()
-        print('hello again')
         
         with self.lm_drive_lock.gen_rlock():
             homing_started = (self.lm_drive_data_dict[1].outputs['control_word'] & 0x0800) != 0
@@ -234,12 +238,13 @@ class main_test():
         print('Trigger command table')
         sendData.update_output_drive_data(app=self, active_drive_number=1, controlWord=None, header=0x2000, para_word=[[1, 1]]) #start command table
 
-        time.sleep(40)
+        time.sleep(50)
 
         # Stop oscilloscope reading
         self.ethercat_comm.data_queue_ON.clear()
-        # save oscilloscope data
-        self.save_oszi(filename='Oszi_recoding')
+        if self.ozsi_on:
+            # save oscilloscope data
+            self.save_oszi(filename='Oszi_recoding')
         
         # Swich Off Motor
         self.process_input_data()
