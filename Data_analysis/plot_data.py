@@ -2,7 +2,7 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 
-CSV_FILE = "Oszi_recoding_0/Oszi_recoding.csv"
+CSV_FILE = "../Oszi_recoding_0/Oszi_recoding.csv"
 CYCLE_TIME = 0.003  # seconds
 EMA_ALPHA = 0.07011191019798384  # Exponential Moving Average alpha
 TARGET = "measured_force"  # The target column to plot
