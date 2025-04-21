@@ -264,7 +264,11 @@ class EtherCATCommunication:
                     self.data[:] = all_data[:]
                     self.lock.release()
                 if self.data_queue_ON.is_set():
-                    self.data_queue.put(all_data)
+                    #self.data_queue.put(all_data)
+                    try:
+                        self.data_queue.put(all_data, timeout=0.001)
+                    except self.data_queue.Full:
+                        self.error_queue.put('data_queue is full. Skipping this cycle.') if self.mp_log >= 30 else None
 
                 # Process the update queue if new Rx data is available
                 if not self.update_queue.empty():
@@ -279,11 +283,19 @@ class EtherCATCommunication:
                     
 
                 if self.evaluate_latency.is_set():
-                    latency = time.perf_counter() - start_time
+                    """ latency = time.perf_counter() - start_time
                     self.latency_queue.put({
                         'timestamp': datetime.datetime.now(),
                         'latency': latency,
-                    })
+                    }) """
+                    try:
+                        latency = time.perf_counter() - start_time
+                        self.latency_queue.put({
+                        'timestamp': datetime.datetime.now(),
+                        'latency': latency,
+                    }, timeout=0.001)
+                    except self.latency_queue.Full:
+                        self.error_queue.put('data_queue is full. Skipping this cycle.') if self.mp_log >= 30 else None
                 
                 # Handle cycle time
                 elapsed_time = time.perf_counter() - start_time
