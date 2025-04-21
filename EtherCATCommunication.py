@@ -11,6 +11,7 @@ import datetime
 from readerwriterlock import rwlock
 import LMDrive_Data as LMDD
 import SendData as sendData
+import csv
 
 
 #----------------------------------------------------------------------------------------------------
@@ -101,6 +102,10 @@ class EtherCATCommunication:
         # Constant
         self.MAX_CYCLE_OVERRUN: int = 20
         self.MAX_SLAVE_COMM_ATTEMPTS: int = 10
+
+        # Flag to evaluate the latency
+        self.evaluate_latency = True
+        self.latency_queue = mp.Queue() # Queue for latency data
         
         
     def check_values(self):
@@ -274,6 +279,14 @@ class EtherCATCommunication:
                 # Handle cycle time
                 elapsed_time = time.perf_counter() - start_time
                 sleep_time = self.cycle_time - elapsed_time - 0.0004
+
+                if self.evaluate_latency:
+                    latency = time.perf_counter() - start_time
+                    self.latency_queue.put({
+                        'timestamp': datetime.datetime.now(),
+                        'latency': latency,
+                    })
+                    
                 if sleep_time > 0:
                     time.sleep(sleep_time)
                     overrun_count = 0
@@ -315,6 +328,10 @@ class EtherCATCommunication:
         """
         Stops the EtherCAT communication process.
         """
+        if self.evaluate_latency:
+            logging.info("Saving latency data to CSV file.")
+            self.save_latency_to_csv(latency_queue=self.latency_queue)
+
         if self.comm_proc:
             logging.info("Setting stop event.")
             self.stop_event.set()
@@ -345,3 +362,20 @@ class EtherCATCommunication:
                 logging.error('Communication process did not terminate within the timeout period.')
             else:
                 logging.info('EtherCAT communication process stopped successfully.')
+
+
+    def save_latency_to_csv(self, latency_queue, filename="latency_log.csv"):
+        #fieldnames = ["timestamp", "comm_latency", "data_lock_latency", "update_latency", "cycle_time"]
+        fieldnames = ["timestamp", "latency"]
+        
+        # Check if the file exists to determine if we need to write the header
+        file_exists = os.path.isfile(filename)
+        
+        with open(filename, mode='a', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            if not file_exists:
+                writer.writeheader()
+
+            while not latency_queue.empty():
+                latency_data = latency_queue.get()
+                writer.writerow(latency_data)
