@@ -104,7 +104,7 @@ class EtherCATCommunication:
         self.MAX_SLAVE_COMM_ATTEMPTS: int = 10
 
         # Flag to evaluate the latency
-        self.evaluate_latency = True
+        self.evaluate_latency = mp.Event() # Default to False
         self.latency_queue = mp.Queue() # Queue for latency data
         
         
@@ -235,6 +235,7 @@ class EtherCATCommunication:
         overrun_count = 0
         self.data_queue_ON.clear() # Default Oszi recording off!
         self.stop_event.clear() # Enable Communication
+        self.evaluate_latency.clear() # Default to False
         lock_timeout = max(self.cycle_time-0.010, 0.004)
         
         slave_state = [0]*self.noDev
@@ -276,16 +277,17 @@ class EtherCATCommunication:
                     except Exception as e:
                         self.error_queue.put(f'{datetime.datetime.now()} - Unexpected error while Sending Data: {e}') if self.mp_log >= 40 else None
                     
-                # Handle cycle time
-                elapsed_time = time.perf_counter() - start_time
-                sleep_time = self.cycle_time - elapsed_time - 0.0004
 
-                if self.evaluate_latency:
+                if self.evaluate_latency.is_set():
                     latency = time.perf_counter() - start_time
                     self.latency_queue.put({
                         'timestamp': datetime.datetime.now(),
                         'latency': latency,
                     })
+                
+                # Handle cycle time
+                elapsed_time = time.perf_counter() - start_time
+                sleep_time = self.cycle_time - elapsed_time - 0.0004
                     
                 if sleep_time > 0:
                     time.sleep(sleep_time)
@@ -370,6 +372,11 @@ class EtherCATCommunication:
         
         # Check if the file exists to determine if we need to write the header
         file_exists = os.path.isfile(filename)
+
+        if file_exists:
+            os.remove(filename)
+            print(f"Existing file '{filename}' removed.")
+            file_exists = False
         
         with open(filename, mode='a', newline='') as csvfile:
             writer = csv.DictWriter(csvfile, fieldnames=fieldnames)

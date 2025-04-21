@@ -225,6 +225,7 @@ class main_test():
         
         # Start oscilloscope reading
         self.ethercat_comm.data_queue_ON.set()
+        self.ethercat_comm.evaluate_latency.set()
         
         # Move to 50 mm
         print('Send move to 50 mm')
@@ -235,10 +236,10 @@ class main_test():
         time.sleep(0.2)
         
         # Start command table
-        """ print('Trigger command table')
-        sendData.update_output_drive_data(app=self, active_drive_number=1, controlWord=None, header=0x2000, para_word=[[1, 1]]) #start command table """
+        print('Trigger command table')
+        sendData.update_output_drive_data(app=self, active_drive_number=1, controlWord=None, header=0x2000, para_word=[[1, 1]]) #start command table
 
-        #time.sleep(50)
+        time.sleep(50)
 
         # Stop oscilloscope reading
         self.ethercat_comm.data_queue_ON.clear()
