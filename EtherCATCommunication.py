@@ -12,6 +12,7 @@ from readerwriterlock import rwlock
 import LMDrive_Data as LMDD
 import SendData as sendData
 import csv
+import queue
 
 
 #----------------------------------------------------------------------------------------------------
@@ -266,8 +267,8 @@ class EtherCATCommunication:
                 if self.data_queue_ON.is_set():
                     #self.data_queue.put(all_data)
                     try:
-                        self.data_queue.put(all_data, timeout=0.001)
-                    except self.data_queue.Full:
+                        self.data_queue.put_nowait(all_data)
+                    except queue.Full:
                         self.error_queue.put('data_queue is full. Skipping this cycle.') if self.mp_log >= 30 else None
 
                 # Process the update queue if new Rx data is available
@@ -290,11 +291,11 @@ class EtherCATCommunication:
                     }) """
                     try:
                         latency = time.perf_counter() - start_time
-                        self.latency_queue.put({
+                        self.latency_queue.put_nowait({
                         'timestamp': datetime.datetime.now(),
                         'latency': latency,
-                    }, timeout=0.001)
-                    except self.latency_queue.Full:
+                    })
+                    except queue.Full:
                         self.error_queue.put('data_queue is full. Skipping this cycle.') if self.mp_log >= 30 else None
                 
                 # Handle cycle time
@@ -340,7 +341,7 @@ class EtherCATCommunication:
     
     def stop(self):
         """
-        Stops the EtherCAT communication process.
+        Stops the EtherCAT communication process and clears all queues safely.
         """
         if self.evaluate_latency:
             logging.info("Saving latency data to CSV file.")
@@ -349,33 +350,43 @@ class EtherCATCommunication:
         if self.comm_proc:
             logging.info("Setting stop event.")
             self.stop_event.set()
+
+            # Try to join the communication process with timeout
             self.comm_proc.join(timeout=2)
-            
+
             if self.comm_proc.is_alive():
-                # Empty every queue
-                logging.info('Communication process did not terminate. Try emptying queues:')
-                if not self.error_queue.empty():
-                    logging.info(f'Clearing error_queue with {self.error_queue.qsize()} entries.')
-                    while not self.error_queue.empty():
-                        self.error_queue.get_nowait()
-                if not self.info_queue.empty():
-                    logging.info(f'Clearing info_queue with {self.info_queue.qsize()} entries.')
-                    while not self.info_queue.empty():
-                        self.info_queue.get_nowait()
-                if not self.update_queue.empty():
-                    logging.info(f'Clearing update_queue with {self.update_queue.qsize()} entries.')
-                    while not self.update_queue.empty():
-                        self.update_queue.get_nowait()
-                if not self.data_queue.empty():
-                    logging.info(f'Clearing data_queue with {self.data_queue.qsize()} entries.')
-                    while not self.data_queue.empty():
-                        self.data_queue.get_nowait()
-                self.comm_proc.join()
-                
-            if self.comm_proc.is_alive():  
-                logging.error('Communication process did not terminate within the timeout period.')
+                logging.warning("Communication process did not terminate. Attempting to clear queues.")
+
+                # Helper function to safely drain a queue
+                def drain_queue(q, name):
+                    count = 0
+                    while not q.empty():
+                        try:
+                            q.get_nowait()
+                            count += 1
+                        except Exception as e:
+                            logging.warning(f"Failed to get from {name}: {e}")
+                            break
+                    logging.info(f"Cleared {count} entries from {name}.")
+
+                # Drain all queues
+                drain_queue(self.error_queue, "error_queue")
+                drain_queue(self.info_queue, "info_queue")
+                drain_queue(self.update_queue, "update_queue")
+                drain_queue(self.data_queue, "data_queue")
+
+                # Give the process another chance to terminate cleanly
+                self.comm_proc.join(timeout=1)
+
+                if self.comm_proc.is_alive():
+                    logging.error("Communication process still alive. Forcefully terminating.")
+                    self.comm_proc.terminate()
+                    self.comm_proc.join(timeout=1)
+
+            if self.comm_proc.is_alive():
+                logging.error("Communication process did not terminate even after forceful termination.")
             else:
-                logging.info('EtherCAT communication process stopped successfully.')
+                logging.info("EtherCAT communication process stopped successfully.")
 
 
     def save_latency_to_csv(self, latency_queue, filename="latency_log.csv"):

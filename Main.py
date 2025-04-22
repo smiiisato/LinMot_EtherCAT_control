@@ -16,6 +16,7 @@ import SendData as sendData
 import numpy as np
 import threading
 import ctypes
+import queue
 from EtherCATCommunication import EtherCATCommunication
 
 class main_test():
@@ -45,7 +46,7 @@ class main_test():
         # Configuration parameters - Setup
         self.adapter_id = 'enx606d3cf95ad1'
         self.noDev: int = 1 # Number of expected EtherCAT devices
-        self.cycle_time: float = 0.003 # Cycle time in seconds
+        self.cycle_time: float = 0.0015 # Cycle time in seconds
         self.no_Monitoring: int = 4 # How many Monitoring Channels do you want to recieve. Please change "TxData_Default_Inputs_...M" accordingly
         self.no_Parameter: int = 0 # How many Parameter Channels do you want to send
         self.Activate_LMDrive_Data: bool = False # This script works only when set to False
@@ -140,9 +141,15 @@ class main_test():
             # Print all Error Statements
             while not self.ethercat_comm.error_queue.empty(): print(f'Error: {self.ethercat_comm.error_queue.get()}')
             while not self.ethercat_comm.info_queue.empty(): print(f'Info: {self.ethercat_comm.info_queue.get()}')
+
+            if self.ozsi_on:
+                # save oscilloscope data
+                self.save_oszi(filename='Oszi_recoding')
+
             # Ensure that the EtherCAT communication process is stopped properly
             logging.info("Stop EtherCAT communication.")
             self.ethercat_comm.stop()
+
             input("Press enter to exit;")
             
             
@@ -243,9 +250,6 @@ class main_test():
 
         # Stop oscilloscope reading
         self.ethercat_comm.data_queue_ON.clear()
-        if self.ozsi_on:
-            # save oscilloscope data
-            self.save_oszi(filename='Oszi_recoding')
         
         # Swich Off Motor
         self.process_input_data()
@@ -425,8 +429,16 @@ class main_test():
         """
         # Drain queue
         raw_data_list = []
-        while not self.ethercat_comm.data_queue.empty():
-            raw_data_list.append(self.ethercat_comm.data_queue.get())
+        while True:
+                try:
+                    raw_data_list.append(self.ethercat_comm.data_queue.get_nowait())
+                except queue.Empty:
+                    time.sleep(0.01)
+                    try:
+                        raw_data_list.append(self.ethercat_comm.data_queue.get_nowait())
+                    except queue.Empty:
+                        break
+                 
 
         if not raw_data_list:
             print("Queue is empty. Nothing to save.")
