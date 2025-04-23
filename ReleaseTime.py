@@ -58,8 +58,7 @@ class main_test():
 
         # flag to print the status of the drive
         self.print_drive_status = False
-        # flag to save the oscilloscope data
-        self.ozsi_on = True
+        
 
     def start(self):
         """
@@ -74,7 +73,16 @@ class main_test():
             KeyboardInterrupt: If the process is interrupted manually.
         """
         # Create an instance of the EtherCATCommunication class
-        self.ethercat_comm = EtherCATCommunication(self.adapter_id, self.noDev, self.cycle_time, self.lock, self.no_Monitoring, self.no_Parameter, self.mp_logging)
+        self.ethercat_comm = EtherCATCommunication(self.adapter_id, 
+                                                   self.noDev, 
+                                                   self.cycle_time, 
+                                                   self.lock, 
+                                                   self.no_Monitoring, 
+                                                   self.no_Parameter, 
+                                                   self.mp_logging,
+                                                   ozsi_on=True,
+                                                   record_latency=True
+                                                    )
         
         # Start the EtherCAT communication process
         try:
@@ -216,9 +224,6 @@ class main_test():
 
         # Stop oscilloscope reading
         self.ethercat_comm.data_queue_ON.clear()
-        if self.ozsi_on:
-            # save oscilloscope data
-            utils.save_oszi(self, filename='Oszi_recoding')
         
         # Swich Off Motor
         utils.process_input_data(self)

@@ -77,6 +77,28 @@ def loop_print_data(app):
             time.sleep(1)
 
 
+def save_latency_to_csv(latency_queue, filename="latency_log.csv"):
+        #fieldnames = ["timestamp", "comm_latency", "data_lock_latency", "update_latency", "cycle_time"]
+        fieldnames = ["timestamp", "latency"]
+        
+        # Check if the file exists to determine if we need to write the header
+        file_exists = os.path.isfile(filename)
+
+        if file_exists:
+            os.remove(filename)
+            print(f"Existing file '{filename}' removed.")
+            file_exists = False
+        
+        with open(filename, mode='a', newline='') as csvfile:
+            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+            if not file_exists:
+                writer.writeheader()
+
+            while not latency_queue.empty():
+                latency_data = latency_queue.get()
+                writer.writerow(latency_data)
+
+
 def save_oszi(app, filename=None):
         """
         Saves oscilloscope data to CSV files.
@@ -96,8 +118,8 @@ def save_oszi(app, filename=None):
         """
         # Drain queue
         raw_data_list = []
-        while not app.ethercat_comm.data_queue.empty():
-            raw_data_list.append(app.ethercat_comm.data_queue.get())
+        while not app.data_queue.empty():
+            raw_data_list.append(app.data_queue.get())
 
         if not raw_data_list:
             print("Queue is empty. Nothing to save.")
@@ -127,10 +149,10 @@ def save_oszi(app, filename=None):
                 raw_data = bytes(raw_data)
 
             # Extract the data for the current device based on its index
-            device_data_chunk = raw_data[0:app.data_length] # the device number is 1 always
-            unpacked_dict = app.unpack_input_data(device_data_chunk)
+            device_data_chunk = raw_data[0:app.InputLength] # the device number is 1 always
+            unpacked_dict = unpack_input_data(device_data_chunk)
             # Update the calculated fields
-            status = app.update_calculated_fields_from_inputs(unpacked_dict)
+            status = update_calculated_fields_from_inputs(unpacked_dict)
 
             # Write the header once and then the data for this device
             if not header_written:

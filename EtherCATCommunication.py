@@ -13,6 +13,7 @@ import LMDrive_Data as LMDD
 import SendData as sendData
 import csv
 import queue
+import utils
 
 
 #----------------------------------------------------------------------------------------------------
@@ -63,7 +64,8 @@ class EtherCATCommunication:
         
     """
     
-    def __init__(self, adapter_id:str, noDev:int, cycle_time:float, lock:mp.Lock, no_Monitoring:int=0, no_Parameter:int=0, mp_logging:int=0):
+    def __init__(self, adapter_id:str, noDev:int, cycle_time:float, lock:mp.Lock, no_Monitoring:int=0, no_Parameter:int=0, mp_logging:int=0,
+                 ozsi_on:bool=True, record_latency:bool=False):
         """
         Initializes the EtherCATCommunication class with the given parameters.
 
@@ -105,8 +107,13 @@ class EtherCATCommunication:
         self.MAX_SLAVE_COMM_ATTEMPTS: int = 10
 
         # Flag to evaluate the latency
+        self.record_latency = record_latency
         self.evaluate_latency = mp.Event() # Default to False
         self.latency_queue = mp.Queue() # Queue for latency data
+
+        # Flag to activate the oscilloscope recording
+        self.ozsi_on = ozsi_on
+        self.oszi_file_nr = 0
         
         
     def check_values(self):
@@ -284,11 +291,6 @@ class EtherCATCommunication:
                     
 
                 if self.evaluate_latency.is_set():
-                    """ latency = time.perf_counter() - start_time
-                    self.latency_queue.put({
-                        'timestamp': datetime.datetime.now(),
-                        'latency': latency,
-                    }) """
                     try:
                         latency = time.perf_counter() - start_time
                         self.latency_queue.put_nowait({
@@ -343,9 +345,13 @@ class EtherCATCommunication:
         """
         Stops the EtherCAT communication process and clears all queues safely.
         """
-        if self.evaluate_latency:
+        if self.record_latency:
             logging.info("Saving latency data to CSV file.")
-            self.save_latency_to_csv(latency_queue=self.latency_queue)
+            utils.save_latency_to_csv(latency_queue=self.latency_queue)
+        
+        if self.ozsi_on:
+                # save oscilloscope data
+                utils.save_oszi(self, filename='Oszi_recoding')
 
         if self.comm_proc:
             logging.info("Setting stop event.")
@@ -388,24 +394,3 @@ class EtherCATCommunication:
             else:
                 logging.info("EtherCAT communication process stopped successfully.")
 
-
-    def save_latency_to_csv(self, latency_queue, filename="latency_log.csv"):
-        #fieldnames = ["timestamp", "comm_latency", "data_lock_latency", "update_latency", "cycle_time"]
-        fieldnames = ["timestamp", "latency"]
-        
-        # Check if the file exists to determine if we need to write the header
-        file_exists = os.path.isfile(filename)
-
-        if file_exists:
-            os.remove(filename)
-            print(f"Existing file '{filename}' removed.")
-            file_exists = False
-        
-        with open(filename, mode='a', newline='') as csvfile:
-            writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
-            if not file_exists:
-                writer.writeheader()
-
-            while not latency_queue.empty():
-                latency_data = latency_queue.get()
-                writer.writerow(latency_data)
