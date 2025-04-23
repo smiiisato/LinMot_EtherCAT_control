@@ -5,6 +5,7 @@ import csv
 from queue import Queue
 import threading
 import time
+import queue
 
 def process_input_data(app):
         """
@@ -117,8 +118,15 @@ def save_oszi(app, filename=None):
         """
         # Drain queue
         raw_data_list = []
-        while not app.data_queue.empty():
-            raw_data_list.append(app.data_queue.get())
+        while True:
+            try:
+                raw_data_list.append(app.data_queue.get_nowait())
+            except queue.Empty:
+                time.sleep(0.01)
+                try:
+                    raw_data_list.append(app.data_queue.get_nowait())
+                except queue.Empty:
+                    break
 
         if not raw_data_list:
             print("Queue is empty. Nothing to save.")
@@ -149,9 +157,9 @@ def save_oszi(app, filename=None):
 
             # Extract the data for the current device based on its index
             device_data_chunk = raw_data[0:app.InputLength] # the device number is 1 always
-            unpacked_dict = unpack_input_data(device_data_chunk)
+            unpacked_dict = unpack_input_data(app, device_data_chunk)
             # Update the calculated fields
-            status = update_calculated_fields_from_inputs(unpacked_dict)
+            status = update_calculated_fields_from_inputs(app, unpacked_dict)
 
             # Write the header once and then the data for this device
             if not header_written:
@@ -234,9 +242,24 @@ def update_calculated_fields_from_inputs(app, inputs):
         Calculates derived status values from given input dictionary and config,
         and returns a status dictionary.
         """
+        config = {
+            'is_rotary_motor': False,
+            'pos_scale_numerator': 10000.0,
+            'pos_scale_denominator': 1.0,
+            'unit_scale': 10000.0,
+            'modulo_factor': 360000,
+            'fc_force_scale': 0.1,
+            'analog_diff_voltage_scale': 0.0048828125, # V/bit
+            'analog_voltage_scale': 0.00244140625, # V/bit
+            'fc_torque_scale': 0.00057295779513082,
+            'load_cell_scale': 19.6133, # N/V
+            'drive_name': "LMDrive",
+            'drive_type': "0" #"Undefined"
+        }
+
         status = {}
 
-        unit_scale = app.config['pos_scale_numerator'] / app.config['pos_scale_denominator']
+        unit_scale = config['pos_scale_numerator'] / config['pos_scale_denominator']
 
         # Update status fields based on inputs
         status['operation_enabled'] = bool(inputs['status_word'] & 0x0001)
@@ -258,11 +281,11 @@ def update_calculated_fields_from_inputs(app, inputs):
         status['difference_position'] = round(status['demand_position'] - status['actual_position'], 4)
         status['actual_current'] = ctypes.c_int16(inputs['demand_curr']).value / 1000.0
 
-        status['measured_force'] = ctypes.c_int32(inputs['mon_ch1']).value * app.config['fc_force_scale']
-        status['analog_diff_voltage'] = ctypes.c_int32(inputs['mon_ch2']).value * app.config['analog_diff_voltage_scale']
-        status['analog_diff_voltage_filtered'] = ctypes.c_float(inputs['mon_ch4']).value * app.config['analog_diff_voltage_scale']  # V
-        status['analog_voltage'] = ctypes.c_int32(inputs['mon_ch3']).value * app.config['analog_voltage_scale']
+        status['measured_force'] = ctypes.c_int32(inputs['mon_ch1']).value * config['fc_force_scale']
+        status['analog_diff_voltage'] = ctypes.c_int32(inputs['mon_ch2']).value * config['analog_diff_voltage_scale']
+        status['analog_diff_voltage_filtered'] = ctypes.c_float(inputs['mon_ch4']).value * config['analog_diff_voltage_scale']  # V
+        status['analog_voltage'] = ctypes.c_int32(inputs['mon_ch3']).value * config['analog_voltage_scale']
         # calculate the estimated force from analog_diff_voltage filtered
-        status['estimated_analog_force'] = status['analog_diff_voltage_filtered'] * app.config['load_cell_scale']  # N
+        status['estimated_analog_force'] = status['analog_diff_voltage_filtered'] * config['load_cell_scale']  # N
 
         return status
