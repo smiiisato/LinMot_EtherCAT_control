@@ -50,7 +50,6 @@ class main_test():
         self.data_length = 0
         self.lm_drive_data_updated = 0
         self.device_data_old = 0
-        self.oszi_file_nr = 0
         self.config = None
         
         self.lm_drive_lock = rwlock.RWLockFairD()
@@ -58,6 +57,9 @@ class main_test():
 
         # flag to print the status of the drive
         self.print_drive_status = False
+
+        # Clutch engaged flag
+        self.clutch_engaged = False
         
 
     def start(self):
@@ -203,11 +205,6 @@ class main_test():
 
         time.sleep(0.1) # Wait to make sure that eveything is updated
         
-        
-        # Start oscilloscope reading
-        self.ethercat_comm.data_queue_ON.set()
-        self.ethercat_comm.evaluate_latency.set()
-        
         # Move to 50 mm
         print('Send move to 50 mm')
         sendData.send_motion_command(self, drive=1, header='Absolute_VAI', target_pos=50, max_v=0.01, acc=0.1, dcc=0.1, jerk=10000)
@@ -215,6 +212,21 @@ class main_test():
         
         # Wait for 0.2 seconds
         time.sleep(0.2)
+
+        ################################################################################
+
+        # Wait for clutch to be engaged
+        while not self.clutch_engaged:
+            # Check if the clutch is engaged
+            utils.process_input_data(self)
+            with self.lm_drive_lock.gen_rlock():
+                self.clutch_engaged = (self.lm_drive_data_dict[1].status['analog_voltage'] > 0.5)
+            
+        print(f'Clutch engaged: {self.clutch_engaged}')
+
+        # Start oscilloscope reading
+        self.ethercat_comm.data_queue_ON.set()
+        self.ethercat_comm.evaluate_latency.set()
         
         # Start command table
         print('Trigger command table')

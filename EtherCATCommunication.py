@@ -271,7 +271,7 @@ class EtherCATCommunication:
                 if self.lock.acquire(timeout=lock_timeout):
                     self.data[:] = all_data[:]
                     self.lock.release()
-                if self.data_queue_ON.is_set():
+                if self.ozsi_on and self.data_queue_ON.is_set():
                     #self.data_queue.put(all_data)
                     try:
                         self.data_queue.put_nowait(all_data)
@@ -290,7 +290,7 @@ class EtherCATCommunication:
                         self.error_queue.put(f'{datetime.datetime.now()} - Unexpected error while Sending Data: {e}') if self.mp_log >= 40 else None
                     
 
-                if self.evaluate_latency.is_set():
+                if self.record_latency and self.evaluate_latency.is_set():
                     try:
                         latency = time.perf_counter() - start_time
                         self.latency_queue.put_nowait({

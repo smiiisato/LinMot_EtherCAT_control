@@ -26,11 +26,10 @@ def process_input_data(app):
             all_slave_data = app.ethercat_comm.data[:]
         
         # Read Data from Drive
-        for i in range(app.noDev):
-            device_data = bytes(all_slave_data[i*app.data_length:(i+1)*app.data_length])
-            with app.lm_drive_lock.gen_wlock():
-                app.lm_drive_data_dict[i+1].unpack_inputs(device_data)
-                app.lm_drive_data_dict[i+1].update_calculated_fields()
+        device_data = bytes(all_slave_data[0:app.data_length])
+        with app.lm_drive_lock.gen_wlock():
+            app.lm_drive_data_dict[1].unpack_inputs(device_data)
+            app.lm_drive_data_dict[1].update_calculated_fields()
         
         try: # This part of script is not necessery, if no time critical motion is needed.
             if device_data != app.device_data_old: # If new data avaiable change a value
