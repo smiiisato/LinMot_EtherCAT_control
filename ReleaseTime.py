@@ -1,21 +1,13 @@
-import pysoem # EtherCAT communication
 # Install "pysoem": https://pysoem.readthedocs.io/en/stable/installation.html
 # Follow the following instructions to get the additional software: https://pysoem.readthedocs.io/en/stable/requirements.html
 # For Windows we reccomend Npcap
 import time
-import struct
 import multiprocessing as mp
 import logging
-import os
-import traceback
-import datetime
 from readerwriterlock import rwlock
-import csv
 import LMDrive_Data as LMDD
 import SendData as sendData
-import numpy as np
 import threading
-import ctypes
 from EtherCATCommunication import EtherCATCommunication
 import utils
 
@@ -46,7 +38,7 @@ class main_test():
         # Configuration parameters - Setup
         self.adapter_id = 'enx606d3cf95ad1'
         self.noDev: int = 1 # Number of expected EtherCAT devices
-        self.cycle_time: float = 0.003 # Cycle time in seconds
+        self.cycle_time: float = 0.0015 # Cycle time in seconds
         self.no_Monitoring: int = 4 # How many Monitoring Channels do you want to recieve. Please change "TxData_Default_Inputs_...M" accordingly
         self.no_Parameter: int = 0 # How many Parameter Channels do you want to send
         self.Activate_LMDrive_Data: bool = False # This script works only when set to False
