@@ -1,4 +1,65 @@
 import time
+import utils
+
+# Motion Control Functions --------------------------------------------------------
+def send_motion_command(app, drive, header, target_pos, max_v, acc, dcc, jerk=100000):
+        """
+        Sends a motion command to a specified drive.
+
+        This method formats and sends a motion command to the connected drive using parameters like
+        position, velocity, acceleration, deceleration, and jerk.
+        The header specifies the motion type (absolute, relative, etc.).
+
+        Parameters:
+            drive (int): The drive number to send the motion command to.
+            header (str): The type of motion (e.g., "Absolute_VAI").
+            target_pos (float): The target position for the motion.
+            max_v (float): The maximum velocity for the motion.
+            acc (float): The acceleration value.
+            dcc (float): The deceleration value.
+            jerk (float, optional): The jerk value. Defaults to 100000 if not provided.
+
+        Raises:
+            ValueError: If the header is not recognized.
+        """
+        # Get active Drive
+        active_drive_number = int(drive)
+        # Assign Motion command
+        acc_combined = False
+        jerc_necessery = False
+        if header == "Absolute_VAI":
+            header1 = 0x0100
+        elif header == "Relative_VAI":
+            header1 = 0x0110
+        elif header == "Absolute_VAJI":
+            header1 = 0x3A00
+            jerc_necessery = True
+        elif header == "Relative_VAJI":
+            header1 = 0x3A10
+            jerc_necessery = True
+        elif header == "Incr_Act_Pos_RstI":
+            header1 = 0x0D90
+        elif header == "Absolute_Sin":
+            header1 = 0x0E00
+            acc_combined = True
+        elif header == "Relative_Sin":
+            header1 = 0x0E10
+            acc_combined = True
+        else:
+            raise ValueError('No motion mode defined / found.')
+
+        
+        unit_scale = get_unit_scale(app, active_drive_number) # 10000.0
+        pw = [None]*5
+        pw[0] = [2, float(target_pos) * unit_scale]
+        pw[1] = [2, float(max_v) * unit_scale * 100]
+        pw[2] = [2, float(acc) * unit_scale * 10]
+        if not acc_combined:
+            pw[3] = [2, float(dcc) * unit_scale * 10]
+        if jerc_necessery:
+            pw[4] = [2, float(jerk) * unit_scale]
+        update_output_drive_data(app, active_drive_number, controlWord = 0, header = header1, para_word=pw)
+
 
 # Motor Control Functions --------------------------------------------------------
 
@@ -61,6 +122,44 @@ def error_ack(app, active_drive_number):
     with app.lm_drive_lock.gen_wlock():
         app.lm_drive_data_dict[active_drive_number].outputs['control_word'] &= ~0x0080 # Clear bit 7 (Error Acknoledge = 1)
     send_data_to_slaves(app) # Send Data
+
+def motion_finished(app, sleep_time_cycle, active_drive_number):
+        """
+        Waits for the motion to finish for the given drive.
+
+        This method monitors the motion status of the specified drive and waits until the motion is completed.
+        It periodically checks the drive's status and sleeps between checks.
+
+        Parameters:
+            sleep_time_cycle (float): The sleep time between each status check.
+            active_drive_number (int or list): The drive(s) to monitor for motion completion.
+
+        Returns:
+            bool: Returns True when the motion is completed.
+        """
+        time.sleep(sleep_time_cycle * 4)
+        utils.process_input_data(app) # Recieve most current data
+        ldd_old = app.lm_drive_data_updated # Is not necessery, but nice to have
+        ma = True # motion_active
+        while ma:
+            utils.process_input_data(app)
+            ldd_new = app.lm_drive_data_updated  # Is not necessery
+            if ldd_new != ldd_old:  # Is not necessery
+                ldd_old = ldd_new
+                if isinstance(active_drive_number, list):
+                    j = True
+                    with app.lm_drive_lock.gen_rlock():
+                        for i in active_drive_number:
+                            j = j & (not app.lm_drive_data_dict[i].status['motion_active'])
+                    ma = not j
+                elif isinstance(active_drive_number, int):
+                    with app.lm_drive_lock.gen_rlock():
+                        ma = app.lm_drive_data_dict[active_drive_number].status['motion_active']
+                else:
+                    raise TypeError('active_drive_number is expected to be an integer or list')
+                time.sleep(sleep_time_cycle * 2)
+        return True
+
 
 # Utility Functions -----------------------------------------------------------------
 
@@ -148,7 +247,7 @@ def update_output_drive_data(app, active_drive_number, controlWord:str, header:s
         Sends the updated data to the slaves.
     """
     # Update drive Data
-    app.process_input_data()
+    utils.process_input_data(app)
     # control_word
     if controlWord and not controlWord == '0':
         controlWord = hex_valid(app, controlWord)
