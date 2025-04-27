@@ -118,13 +118,16 @@ def save_oszi(app, filename=None):
         """
         # Drain queue
         raw_data_list = []
+        timestamps = []
         while True:
             try:
                 raw_data_list.append(app.data_queue.get_nowait())
+                timestamps.append(app.ozsi_timestamp_list.pop(0))
             except queue.Empty:
                 time.sleep(0.01)
                 try:
                     raw_data_list.append(app.data_queue.get_nowait())
+                    timestamps.append(app.ozsi_timestamp_list.pop(0))
                 except queue.Empty:
                     break
 
@@ -132,8 +135,8 @@ def save_oszi(app, filename=None):
             print("Queue is empty. Nothing to save.")
             return
 
-        if filename is None: #TODO : add datetime to filename
-            filename = 'Oszi_recoding'
+        if filename is None: 
+            filename = 'Oszi_recoding' + time.strftime("%Y%m%d_%H%M%S")
 
         # Create a directory to store the separate files if it doesn't exist
         output_dir = f'{filename}_{app.oszi_file_nr}'
@@ -163,9 +166,11 @@ def save_oszi(app, filename=None):
 
             # Write the header once and then the data for this device
             if not header_written:
-                csv_data.append(list(status.keys()))
+                #csv_data.append(list(status.keys()))
+                csv_data.append(['Timestamp'] + list(status.keys()))
                 header_written = True
-            csv_data.append(list(status.values()))
+            #csv_data.append(list(status.values()))
+            csv_data.append([timestamps.isoformat()] + list(status.values())) 
 
         # Write the CSV data for this device
         with open(device_filename, 'w', newline='') as f:

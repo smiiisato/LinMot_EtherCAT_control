@@ -114,6 +114,7 @@ class EtherCATCommunication:
         # Flag to activate the oscilloscope recording
         self.ozsi_on = ozsi_on
         self.oszi_file_nr = 0
+        self.ozsi_timestamp_list = [] # List to store timestamps
         
         
     def check_values(self):
@@ -275,6 +276,7 @@ class EtherCATCommunication:
                     #self.data_queue.put(all_data)
                     try:
                         self.data_queue.put_nowait(all_data)
+                        self.ozsi_timestamp_list.append(datetime.datetime.now())
                     except queue.Full:
                         self.error_queue.put('data_queue is full. Skipping this cycle.') if self.mp_log >= 30 else None
 
