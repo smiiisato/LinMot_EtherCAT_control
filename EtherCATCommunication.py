@@ -353,6 +353,7 @@ class EtherCATCommunication:
         
         if self.ozsi_on:
                 # save oscilloscope data
+                logging.info("Saving ozsi data to CSV file.")
                 utils.save_oszi(self, filename='Oszi_recoding')
 
         if self.comm_proc:
