@@ -275,8 +275,8 @@ class EtherCATCommunication:
                 if self.ozsi_on and self.data_queue_ON.is_set():
                     #self.data_queue.put(all_data)
                     try:
-                        self.data_queue.put_nowait(all_data)
-                        self.ozsi_timestamp_list.append(datetime.datetime.now())
+                        #self.data_queue.put_nowait(all_data)
+                        self.data_queue.put_nowait((datetime.datetime.now(), all_data))
                     except queue.Full:
                         self.error_queue.put('data_queue is full. Skipping this cycle.') if self.mp_log >= 30 else None
 
@@ -354,7 +354,7 @@ class EtherCATCommunication:
         if self.ozsi_on:
                 # save oscilloscope data
                 logging.info("Saving ozsi data to CSV file.")
-                utils.save_oszi(self, filename='Oszi_recoding')
+                utils.save_oszi(self, filename=None)
 
         if self.comm_proc:
             logging.info("Setting stop event.")

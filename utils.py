@@ -100,87 +100,60 @@ def save_latency_to_csv(latency_queue, filename="latency_log.csv"):
 
 
 def save_oszi(app, filename=None):
-        """
-        Saves oscilloscope data to CSV files.
-
-        This method saves the unpacked EtherCAT data to CSV files. Each device's data is saved in a separate file
-        within a directory, and the files are named based on the device number.
-
-        Parameters:
-            filename (str, optional): The base name for the CSV files. If not provided,
-                                        the default name 'Oszi_recoding' is used.
-
-        Functionality:
-            - Drains the EtherCAT communication queue.
-            - Unpacks the data for each device.
-            - Saves the data to separate CSV files for each device.
-            - Increments the file number for each saved batch of data.
-        """
-        # Drain queue
-        raw_data_list = []
-        timestamps = []
-        while True:
+    """
+    Saves oscilloscope data to CSV files with timestamps.
+    """
+    # Drain queue
+    data_with_timestamps = []
+    while True:
+        try:
+            data_with_timestamps.append(app.data_queue.get_nowait())
+        except queue.Empty:
+            time.sleep(0.01)
             try:
-                raw_data_list.append(app.data_queue.get_nowait())
-                timestamps.append(app.ozsi_timestamp_list.pop(0))
+                data_with_timestamps.append(app.data_queue.get_nowait())
             except queue.Empty:
-                time.sleep(0.01)
-                try:
-                    raw_data_list.append(app.data_queue.get_nowait())
-                    timestamps.append(app.ozsi_timestamp_list.pop(0))
-                except queue.Empty:
-                    break
+                break
 
-        if not raw_data_list:
-            print("Queue is empty. Nothing to save.")
-            return
+    if not data_with_timestamps:
+        print("Queue is empty. Nothing to save.")
+        return
 
-        if filename is None: 
-            filename = 'Oszi_recoding' + time.strftime("%Y%m%d_%H%M%S")
+    if filename is None:
+        filename = 'Oszi_recoding' + time.strftime("%Y%m%d_%H%M%S")
 
-        # Create a directory to store the separate files if it doesn't exist
-        output_dir = f'{filename}_{app.oszi_file_nr}'
-        os.makedirs(output_dir, exist_ok=True)
+    output_dir = f'{filename}_{app.oszi_file_nr}'
+    os.makedirs(output_dir, exist_ok=True)
 
-        # Unpack and write to separate CSV files for each device
-        #for device_index in range(app.noDev):
-        device_filename = os.path.join(output_dir, f'{filename}.csv')
-        
-        if os.path.exists(device_filename):
-            os.remove(device_filename)
-            print(f"Existing file '{device_filename}' deleted.")
+    device_filename = os.path.join(output_dir, f'{filename}.csv')
 
-        csv_data = []
-        header_written = False
+    if os.path.exists(device_filename):
+        os.remove(device_filename)
+        print(f"Existing file '{device_filename}' deleted.")
 
-        for raw_data in raw_data_list:
-            # Ensure raw_data is a bytes-like object
-            if isinstance(raw_data, list):  # Convert if it's a list
-                raw_data = bytes(raw_data)
+    csv_data = []
+    header_written = False
 
-            # Extract the data for the current device based on its index
-            device_data_chunk = raw_data[0:app.InputLength] # the device number is 1 always
-            unpacked_dict = unpack_input_data(app, device_data_chunk)
-            # Update the calculated fields
-            status = update_calculated_fields_from_inputs(app, unpacked_dict)
+    for timestamp, raw_data in data_with_timestamps:
+        if isinstance(raw_data, list):
+            raw_data = bytes(raw_data)
 
-            # Write the header once and then the data for this device
-            if not header_written:
-                #csv_data.append(list(status.keys()))
-                csv_data.append(['Timestamp'] + list(status.keys()))
-                header_written = True
-            #csv_data.append(list(status.values()))
-            csv_data.append([timestamps.isoformat()] + list(status.values())) 
+        device_data_chunk = raw_data[0:app.InputLength]
+        unpacked_dict = unpack_input_data(app, device_data_chunk)
+        status = update_calculated_fields_from_inputs(app, unpacked_dict)
 
-        # Write the CSV data for this device
-        with open(device_filename, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerows(csv_data)
+        if not header_written:
+            csv_data.append(['Timestamp'] + list(status.keys()))
+            header_written = True
+        csv_data.append([timestamp.isoformat()] + list(status.values()))
 
-        print(f"Saved {len(raw_data_list)} entries to {device_filename}")
+    with open(device_filename, 'w', newline='') as f:
+        writer = csv.writer(f)
+        writer.writerows(csv_data)
 
-        # Increment file number for the next time
-        app.oszi_file_nr += 1
+    print(f"Saved {len(data_with_timestamps)} entries to {device_filename}")
+
+    app.oszi_file_nr += 1
 
 
 def unpack_input_data(app, data):
