@@ -2,8 +2,9 @@ import pandas as pd
 import matplotlib.pyplot as plt
 import os
 
-CSV_FILE = "../Oszi_recoding_0/Oszi_recoding.csv"
-CYCLE_TIME = 0.003  # seconds
+CSV_FILE = "./Oszi_recoding20250427_165902_0/Oszi_recoding20250427_165902.csv"
+TITLE = CSV_FILE.split("/")[-1].split(".")[0]
+CYCLE_TIME = 0.0015  # seconds
 EMA_ALPHA = 0.07011191019798384  # Exponential Moving Average alpha
 TARGET = "measured_force"  # The target column to plot
 #TARGET = "actual_position"  # The target column to plot
@@ -13,7 +14,12 @@ TARGET = "measured_force"  # The target column to plot
 df = pd.read_csv(os.path.join(os.path.dirname(__file__), CSV_FILE))
 
 # Check if the DataFrame is empty
-time = [i * CYCLE_TIME for i in range(len(df))]
+#time = [i * CYCLE_TIME for i in range(len(df))]
+
+# read time as datetime
+time = pd.to_datetime(df["Timestamp"], format="ISO8601")
+start_time = time[0]
+plot_idx = time < start_time + pd.Timedelta(seconds=1.5)
 
 # apply EMA to analog_diff_voltage
 analog_diff_voltage_ema_filtered = df["analog_diff_voltage"].ewm(alpha=EMA_ALPHA, adjust=False).mean()
@@ -30,11 +36,14 @@ if TARGET == "actual_position":
     plt.title("Actual Position Over Time")
 elif TARGET == "measured_force":
     #plt.plot(time, df["estimated_analog_force"], label="Estimated Analog Force[N]", color='red')
-    plt.plot(time, estimated_analog_force_ema_filtered, label=f"EMA_alpha={EMA_ALPHA}", color='blue')
+    plt.plot(time[plot_idx], estimated_analog_force_ema_filtered[plot_idx], label=f"Force EMA_alpha={EMA_ALPHA}", color='blue')
+    plt.plot(time[plot_idx], df["analog_voltage"][plot_idx], label="Analog Voltage[V]", color='red')
+    #plt.drawhline(y=0, color='red', linestyle='--')
     #plt.plot(time, df["measured_force"], label="Measured Force[N]", color='blue')
     plt.xlabel("Time (s)")
     plt.ylabel("Measured Force[N]")
-    plt.title("Measured Force Over Time")
+    #plt.title("Measured Force Over Time")
+    plt.title(TITLE)
 elif TARGET == "analog_diff_voltage":
     plt.plot(time, df["analog_diff_voltage"], label="Analog Diff Voltage[V]", color='red')
     plt.plot(time, analog_diff_voltage_ema_filtered, label=f"EMA_alpha={EMA_ALPHA}", color='blue')
