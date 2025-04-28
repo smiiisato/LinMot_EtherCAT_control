@@ -122,10 +122,7 @@ def save_oszi(app, filename=None):
     if filename is None:
         filename = 'Oszi_recoding' + time.strftime("%Y%m%d_%H%M%S")
 
-    output_dir = f'{filename}_{app.oszi_file_nr}'
-    os.makedirs(output_dir, exist_ok=True)
-
-    device_filename = os.path.join(output_dir, f'{filename}.csv')
+    device_filename = f'{filename}.csv'
 
     if os.path.exists(device_filename):
         os.remove(device_filename)

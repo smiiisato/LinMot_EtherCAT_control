@@ -351,10 +351,6 @@ class EtherCATCommunication:
             logging.info("Saving latency data to CSV file.")
             utils.save_latency_to_csv(latency_queue=self.latency_queue)
         
-        if self.ozsi_on:
-                # save oscilloscope data
-                logging.info("Saving ozsi data to CSV file.")
-                utils.save_oszi(self, filename=None)
 
         if self.comm_proc:
             logging.info("Setting stop event.")

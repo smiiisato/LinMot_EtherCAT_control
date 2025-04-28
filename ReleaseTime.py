@@ -60,6 +60,18 @@ class main_test():
 
         # Clutch engaged flag
         self.clutch_engaged = False
+
+        # logging 
+        self.ozsi_on = True
+        self.record_latency = False
+
+        VOLTAGE = 140
+        FLIPPING_PERIOD = 0.1
+        DECAY_FLIPPING_PERIOD = 0.01
+        ALPHA = 1.0
+        self.filenames = [f'{VOLTAGE}V-flip-{FLIPPING_PERIOD}-decayflip-{DECAY_FLIPPING_PERIOD}-alpha-{ALPHA}-0', 
+                            f'{VOLTAGE}V-flip-{FLIPPING_PERIOD}-decayflip-{DECAY_FLIPPING_PERIOD}-alpha-{ALPHA}-1', 
+                            f'{VOLTAGE}V-flip-{FLIPPING_PERIOD}-decayflip-{DECAY_FLIPPING_PERIOD}-alpha-{ALPHA}-2']
         
 
     def start(self):
@@ -82,8 +94,8 @@ class main_test():
                                                    self.no_Monitoring, 
                                                    self.no_Parameter, 
                                                    self.mp_logging,
-                                                   ozsi_on=True,
-                                                   record_latency=True
+                                                   ozsi_on=self.ozsi_on,
+                                                   record_latency=self.record_latency
                                                     )
         
         # Start the EtherCAT communication process
@@ -205,9 +217,9 @@ class main_test():
 
         time.sleep(0.1) # Wait to make sure that eveything is updated
         
-        # Move to 50 mm
-        print('Send move to 50 mm')
-        sendData.send_motion_command(self, drive=1, header='Absolute_VAI', target_pos=50, max_v=0.01, acc=0.1, dcc=0.1, jerk=10000)
+        # Move to 15 mm
+        print('Send move to 15 mm')
+        sendData.send_motion_command(self, drive=1, header='Absolute_VAI', target_pos=15, max_v=0.01, acc=0.1, dcc=0.1, jerk=10000)
         sendData.motion_finished(self, sleep_time_cycle, active_drive_number=1)
         
         # Wait for 0.2 seconds
@@ -215,29 +227,47 @@ class main_test():
 
         ################################################################################
 
-        # Wait for clutch to be engaged
-        while not self.clutch_engaged:
-            # Check if the clutch is engaged
-            utils.process_input_data(self)
-            with self.lm_drive_lock.gen_rlock():
-                self.clutch_engaged = (self.lm_drive_data_dict[1].status['analog_voltage'] > 0.5)
+        for i in range(3):
+            # Wait for clutch to be engaged
+            while not self.clutch_engaged:
+                # Check if the clutch is engaged
+                utils.process_input_data(self)
+                with self.lm_drive_lock.gen_rlock():
+                    self.clutch_engaged = (self.lm_drive_data_dict[1].status['analog_voltage'] > 0.5)
+                
+            print(f'Clutch engaged: {self.clutch_engaged}')
+
+            # Start oscilloscope reading
+            self.ethercat_comm.data_queue_ON.set()
+            self.ethercat_comm.evaluate_latency.set()
+
+            time.sleep(0.01)
             
-        print(f'Clutch engaged: {self.clutch_engaged}')
+            # Start command table
+            print('Trigger command table')
+            sendData.update_output_drive_data(app=self, active_drive_number=1, controlWord=None, header=0x2000, para_word=[[1, 1]]) #start command table
 
-        # Start oscilloscope reading
-        self.ethercat_comm.data_queue_ON.set()
-        self.ethercat_comm.evaluate_latency.set()
+            time.sleep(5)
 
-        #time.sleep(0.001)
-        
-        # Start command table
-        print('Trigger command table')
-        sendData.update_output_drive_data(app=self, active_drive_number=1, controlWord=None, header=0x2000, para_word=[[1, 1]]) #start command table
+            # Motor no operation
+            print('Trigger command table')
+            sendData.update_output_drive_data(app=self, active_drive_number=1, controlWord=None, header=0x2000, para_word=[[1, 6]]) 
 
-        time.sleep(5)
+            # Stop oscilloscope reading
+            self.ethercat_comm.data_queue_ON.clear()
 
-        # Stop oscilloscope reading
-        self.ethercat_comm.data_queue_ON.clear()
+            if self.ozsi_on:
+                # save oscilloscope data
+                logging.info("Saving ozsi data to CSV file.")
+                utils.save_oszi(self.ethercat_comm, filename=self.filenames[i])
+
+            # Move to 15 mm
+            print('Send move to 15 mm')
+            sendData.send_motion_command(self, drive=1, header='Absolute_VAI', target_pos=15, max_v=0.01, acc=0.1, dcc=0.1, jerk=10000)
+            sendData.motion_finished(self, sleep_time_cycle, active_drive_number=1)
+
+            # reset the clutch state
+            self.clutch_engaged = False
         
         # Swich Off Motor
         utils.process_input_data(self)
