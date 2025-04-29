@@ -65,13 +65,15 @@ class main_test():
         self.ozsi_on = True
         self.record_latency = False
 
-        VOLTAGE = 140
-        FLIPPING_PERIOD = 0.1
+        VOLTAGE = 80
+        FLIPPING_PERIOD = 0
         DECAY_FLIPPING_PERIOD = 0.01
         ALPHA = 1.0
-        self.filenames = [f'{VOLTAGE}V-flip-{FLIPPING_PERIOD}-decayflip-{DECAY_FLIPPING_PERIOD}-alpha-{ALPHA}-0', 
-                            f'{VOLTAGE}V-flip-{FLIPPING_PERIOD}-decayflip-{DECAY_FLIPPING_PERIOD}-alpha-{ALPHA}-1', 
-                            f'{VOLTAGE}V-flip-{FLIPPING_PERIOD}-decayflip-{DECAY_FLIPPING_PERIOD}-alpha-{ALPHA}-2']
+        self.loop_nr = 3 # defult = 3
+        self.filenames = [f'{VOLTAGE}V-flip-{FLIPPING_PERIOD}-decayflip-{DECAY_FLIPPING_PERIOD}-alpha-{ALPHA}-3', 
+                            f'{VOLTAGE}V-flip-{FLIPPING_PERIOD}-decayflip-{DECAY_FLIPPING_PERIOD}-alpha-{ALPHA}-4', 
+                            f'{VOLTAGE}V-flip-{FLIPPING_PERIOD}-decayflip-{DECAY_FLIPPING_PERIOD}-alpha-{ALPHA}-5'
+                            ]
         
 
     def start(self):
@@ -227,7 +229,7 @@ class main_test():
 
         ################################################################################
 
-        for i in range(3):
+        for i in range(self.loop_nr):
             # Wait for clutch to be engaged
             while not self.clutch_engaged:
                 # Check if the clutch is engaged
@@ -247,7 +249,7 @@ class main_test():
             print('Trigger command table')
             sendData.update_output_drive_data(app=self, active_drive_number=1, controlWord=None, header=0x2000, para_word=[[1, 1]]) #start command table
 
-            time.sleep(5)
+            time.sleep(4)
 
             # Motor no operation
             print('Trigger command table')
