@@ -65,15 +65,17 @@ class main_test():
         self.ozsi_on = True
         self.record_latency = False
 
-        VOLTAGE = 80
-        FLIPPING_PERIOD = 0
-        DECAY_FLIPPING_PERIOD = 0.01
-        ALPHA = 1.0
-        self.loop_nr = 3 # defult = 3
-        self.filenames = [f'{VOLTAGE}V-flip-{FLIPPING_PERIOD}-decayflip-{DECAY_FLIPPING_PERIOD}-alpha-{ALPHA}-3', 
-                            f'{VOLTAGE}V-flip-{FLIPPING_PERIOD}-decayflip-{DECAY_FLIPPING_PERIOD}-alpha-{ALPHA}-4', 
-                            f'{VOLTAGE}V-flip-{FLIPPING_PERIOD}-decayflip-{DECAY_FLIPPING_PERIOD}-alpha-{ALPHA}-5'
-                            ]
+        VOLTAGE = 100
+        FLIPPING_PERIOD = 0 # 0 or 0.05 or 0.1
+        DECAY_FLIPPING_PERIOD = 0.01 # 0 or 0.01
+        ALPHA = [0.25, 0.5, 0.75, 1.0]
+        self.loop_nr = 6  # default = 6
+
+        self.filenames = []
+        for alpha in ALPHA:
+            for i in range(self.loop_nr):
+                filename = f'{VOLTAGE}V-flip-{FLIPPING_PERIOD}-decayflip-{DECAY_FLIPPING_PERIOD}-alpha-{alpha}-{i}'
+                self.filenames.append(filename)
         
 
     def start(self):
@@ -227,48 +229,41 @@ class main_test():
         # Wait for 0.2 seconds
         time.sleep(0.2)
 
-        ################################################################################
-
-        for i in range(self.loop_nr):
-            # Wait for clutch to be engaged
+        # === Main experiment loop over filenames ===
+        for i, filename in enumerate(self.filenames):
+            # Wait for clutch engagement
             while not self.clutch_engaged:
-                # Check if the clutch is engaged
                 utils.process_input_data(self)
                 with self.lm_drive_lock.gen_rlock():
                     self.clutch_engaged = (self.lm_drive_data_dict[1].status['analog_voltage'] > 0.5)
-                
             print(f'Clutch engaged: {self.clutch_engaged}')
 
-            # Start oscilloscope reading
+            # Start oscilloscope
             self.ethercat_comm.data_queue_ON.set()
             self.ethercat_comm.evaluate_latency.set()
-
             time.sleep(0.01)
-            
-            # Start command table
-            print('Trigger command table')
-            sendData.update_output_drive_data(app=self, active_drive_number=1, controlWord=None, header=0x2000, para_word=[[1, 1]]) #start command table
 
+            # Trigger command table
+            print('Trigger command table: Start motion')
+            sendData.update_output_drive_data(app=self, active_drive_number=1, controlWord=None, header=0x2000, para_word=[[1, 1]])
             time.sleep(4)
 
-            # Motor no operation
-            print('Trigger command table')
-            sendData.update_output_drive_data(app=self, active_drive_number=1, controlWord=None, header=0x2000, para_word=[[1, 6]]) 
-
-            # Stop oscilloscope reading
+            # Trigger command table: Stop motion
+            print('Trigger command table: Stop motion')
+            sendData.update_output_drive_data(app=self, active_drive_number=1, controlWord=None, header=0x2000, para_word=[[1, 6]])
             self.ethercat_comm.data_queue_ON.clear()
 
+            # Save data
             if self.ozsi_on:
-                # save oscilloscope data
-                logging.info("Saving ozsi data to CSV file.")
-                utils.save_oszi(self.ethercat_comm, filename=self.filenames[i])
+                logging.info(f"Saving ozsi data to CSV file: {filename}")
+                utils.save_oszi(self.ethercat_comm, filename=filename)
 
-            # Move to 15 mm
+            # Return to 15 mm
             print('Send move to 15 mm')
             sendData.send_motion_command(self, drive=1, header='Absolute_VAI', target_pos=15, max_v=0.01, acc=0.1, dcc=0.1, jerk=10000)
             sendData.motion_finished(self, sleep_time_cycle, active_drive_number=1)
 
-            # reset the clutch state
+            # Reset clutch state
             self.clutch_engaged = False
         
         # Swich Off Motor
