@@ -57,6 +57,8 @@ class main_test():
 
         # Clutch engaged flag
         self.clutch_engaged = False
+        # flag to check if the activated time is finished
+        self.activation_finished = False
 
         # logging 
         self.ozsi_on = True
@@ -236,6 +238,11 @@ class main_test():
             # Start oscilloscope
             self.ethercat_comm.data_queue_ON.set()
             self.ethercat_comm.evaluate_latency.set()
+
+            while not self.activation_finished:
+                utils.process_input_data(self)
+                with self.lm_drive_lock.gen_rlock():
+                    self.activation_finished = (self.lm_drive_data_dict[1].status['analog_voltage'] < 0.5)
 
             # Trigger command table at the same time as the clutch is engaged
             sendData.update_output_drive_data(app=self, active_drive_number=1, controlWord=None, header=0x2000, para_word=[[1, 1]])
