@@ -62,16 +62,15 @@ class main_test():
         self.ozsi_on = True
         self.record_latency = False
 
-        VOLTAGE = 100
-        FLIPPING_PERIOD = 0 # 0 or 0.05 or 0.1
-        DECAY_FLIPPING_PERIOD = 0.01 # 0 or 0.01
-        ALPHA = [0.25, 0.5, 0.75, 1.0]
+        VOLTAGE = 80
+        ACTIVATED_TIME = 0.2 # Time in seconds
+        FLIPPING_PERIOD = [0, 0.05, 0.1] # 0 or 0.05 or 0.1
         self.loop_nr = 6  # default = 6
 
         self.filenames = []
-        for alpha in ALPHA:
+        for flipping_period in FLIPPING_PERIOD:
             for i in range(self.loop_nr):
-                filename = f'{VOLTAGE}V-flip-{FLIPPING_PERIOD}-decayflip-{DECAY_FLIPPING_PERIOD}-alpha-{alpha}-{i}'
+                filename = f'{VOLTAGE}V-activated-{ACTIVATED_TIME}-flip-{flipping_period}-{i}.csv'
                 self.filenames.append(filename)
         
 
@@ -240,7 +239,7 @@ class main_test():
 
             # Trigger command table at the same time as the clutch is engaged
             sendData.update_output_drive_data(app=self, active_drive_number=1, controlWord=None, header=0x2000, para_word=[[1, 1]])
-            
+
             print(f'Clutch engaged: {self.clutch_engaged}')
             print('Trigger command table: Start motion')
             time.sleep(4)
