@@ -64,15 +64,16 @@ class main_test():
         self.ozsi_on = True
         self.record_latency = False
 
-        VOLTAGE = 80
+        VOLTAGE = 100
         ACTIVATED_TIME = 0.2 # Time in seconds
-        FLIPPING_PERIOD = [0, 0.05, 0.1] # 0 or 0.05 or 0.1
-        self.loop_nr = 6  # default = 6
+        FLIPPING_PERIOD = [0] # 0 or 0.05 or 0.1
+        self.loop_nr = 5  # default = 6
+        self.test_duration = 8
 
         self.filenames = []
         for flipping_period in FLIPPING_PERIOD:
             for i in range(self.loop_nr):
-                filename = f'{VOLTAGE}V-activated-{ACTIVATED_TIME}-flip-{flipping_period}-{i}.csv'
+                filename = f'{VOLTAGE}V-activated-{ACTIVATED_TIME}-flip-{flipping_period}-{i+1}'
                 self.filenames.append(filename)
         
 
@@ -249,7 +250,7 @@ class main_test():
 
             print(f'Clutch engaged: {self.clutch_engaged}')
             print('Trigger command table: Start motion')
-            time.sleep(4)
+            time.sleep(self.test_duration)
 
             # Trigger command table: Stop motion
             print('Trigger command table: Stop motion')
