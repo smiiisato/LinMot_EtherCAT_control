@@ -65,16 +65,15 @@ class main_test():
         self.ozsi_on = True
         self.record_latency = False
 
-        VOLTAGE = 100
-        FLIPPING_PERIOD = 0 # 0 or 0.05 or 0.1
-        DECAY_FLIPPING_PERIOD = 0.01 # 0 or 0.01
-        ALPHA = [0.25, 0.5, 0.75, 1.0]
+        VOLTAGE = 80
+        FLIPPING_PERIOD = [0] # 0 or 0.05 or 0.1
         self.loop_nr = 6  # default = 6
+        self.test_duration = 8
 
         self.filenames = []
-        for alpha in ALPHA:
+        for flipping_period in FLIPPING_PERIOD:
             for i in range(self.loop_nr):
-                filename = f'{VOLTAGE}V-flip-{FLIPPING_PERIOD}-decayflip-{DECAY_FLIPPING_PERIOD}-alpha-{alpha}-{i}'
+                filename = f'engage-{VOLTAGE}V-flip-{flipping_period}-{i}'
                 self.filenames.append(filename)
         
 
@@ -241,12 +240,11 @@ class main_test():
             # Start oscilloscope
             self.ethercat_comm.data_queue_ON.set()
             self.ethercat_comm.evaluate_latency.set()
-            time.sleep(0.01)
 
             # Trigger command table
             print('Trigger command table: Start motion')
             sendData.update_output_drive_data(app=self, active_drive_number=1, controlWord=None, header=0x2000, para_word=[[1, 1]])
-            time.sleep(4)
+            time.sleep(self.test_duration)
 
             # Trigger command table: Stop motion
             print('Trigger command table: Stop motion')
