@@ -18,9 +18,9 @@ group_by_var = "Flipping period[s]"
 
 # Define the fixed conditions
 fixed_conditions = {
-    "Decaying flipping period[s]": 0,
-    "Decaying duration[s]": 0,
-    "Decaying alpha": 0,
+    #"Decaying flipping period[s]": 0,
+    "Decaying duration[s]": 0.15,
+    #"Decaying alpha": 0,
 }
 
 # filter the DataFrame based on fixed conditions

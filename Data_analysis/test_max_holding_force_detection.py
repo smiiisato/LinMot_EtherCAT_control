@@ -1,17 +1,37 @@
-import pandas as pd
-import numpy as np
-import os
-import re
-from scipy.signal import find_peaks
+########################################################################
+# What the script does:
+# 1. It reads a CSV file containing force curve data.
+# 2. It applies an Exponential Moving Average (EMA) filter to the data.
+# 3. It detects the maximum holding force from the estimated analog force data.
+# 4. It plots the filtered data and the maximum holding force.
+########################################################################
 
-########### CHANGE HERE ###########
-INPUT_DIR = "./Data_analysis/data_max_holding_force"  # Directory containing CSV files
-OUTPUT_FILE = "./Data_analysis/max_holding_force_summary.csv"
-####################################
+import pandas as pd
+import matplotlib.pyplot as plt
+import os
+import numpy as np
+from scipy.signal import find_peaks
+import re
 
 # Constants
+CSV_FILE = "./data_max_holding_force/120V-activated-0.2-flip-0-2.csv"
+TITLE = CSV_FILE.split("/")[-1].split(".")[0]
 CYCLE_TIME = 0.0015  # seconds
 EMA_ALPHA = 0.07011191019798384  # Exponential Moving Average alpha
+
+# reading the CSV file
+df = pd.read_csv(os.path.join(os.path.dirname(__file__), CSV_FILE))
+
+# Analog voltage for voltage status
+analog_voltage = df["analog_voltage"]
+
+# read time as datetime
+time = pd.to_datetime(df["Timestamp"], format="ISO8601")
+start_time = time[0]
+plot_idx = time < start_time + pd.Timedelta(seconds=30)
+
+# apply EMA to estimated_analog_force
+estimated_analog_force_ema_filtered = df["estimated_analog_force"].ewm(alpha=EMA_ALPHA, adjust=False).mean()
 
 def detect_max_holding_force(force_ema, distance=100, prominence=0.05):
     """
@@ -26,11 +46,12 @@ def detect_max_holding_force(force_ema, distance=100, prominence=0.05):
     """
     # Set the height to a percentage of the maximum value
     height = 0.7 * force_ema.max()  # Set height to 10% of the maximum value
+
     # Detect local maxima (peaks)
     peaks, properties = find_peaks(force_ema, distance=distance, prominence=prominence, height=height)
 
     # print properties
-    #print(properties)
+    print(properties)
 
     if len(peaks) == 0:
         return None  # No peaks detected
@@ -64,40 +85,19 @@ def extract_parameters(filename):
         return voltage, activated_time, flipping
     return None, None, None
 
-# List all CSV files in the directory
-results = []
+# Detect the maximum holding force
+max_holding_force, peak_idx = detect_max_holding_force(estimated_analog_force_ema_filtered)
+print(f"Max holding force: {max_holding_force}")
 
-for fname in os.listdir(INPUT_DIR):
-    if fname.endswith(".csv"):
-        voltage, activated_time, flip = extract_parameters(fname)
-        if None in (voltage, activated_time, flip):
-            print(f"Skipped: {fname} (Invalid filename format)")
-            continue
-
-        filepath = os.path.join(INPUT_DIR, fname)
-        try:
-            df = pd.read_csv(filepath)
-            analog_voltage = df["analog_voltage"]
-            force_ema = df["estimated_analog_force"].ewm(alpha=EMA_ALPHA, adjust=False).mean()
-            time = pd.to_datetime(df["Timestamp"], format="ISO8601")
-
-            max_holding_force, peak_idx = detect_max_holding_force(force_ema)
-            if max_holding_force is None:
-                print(f"Max holding force not detected in {fname}")
-
-            results.append({
-                "Voltage[V]": voltage,
-                "Activated time[s]": activated_time,
-                "Flipping period[s]": flip,
-                "Max holding force[N]": max_holding_force,
-            })
-        except Exception as e:
-            print(f"Error processing {fname}: {e}")
-
-# Save results to CSV
-results_df = pd.DataFrame(results)
-results_df = results_df.sort_values(
-    by=["Voltage[V]", "Activated time[s]", "Flipping period[s]"],
-)
-results_df.to_csv(OUTPUT_FILE, index=False)
-print(f"Summary saved to {OUTPUT_FILE}")
+# Plotting the measured force
+plt.figure(figsize=(10, 5))
+plt.plot(time[plot_idx], estimated_analog_force_ema_filtered[plot_idx], label=f"Force EMA_alpha={EMA_ALPHA}", color='blue')
+plt.plot(time[plot_idx], df["analog_voltage"][plot_idx], label="Analog Voltage[V]", color='red')
+plt.axvline(x=time[plot_idx][peak_idx], color='orange', linestyle='--', label="Peak Force")
+plt.xlabel("Time (s)")
+plt.ylabel("Measured Force[N]")
+plt.title(f"{TITLE} - Max force: {max_holding_force:.2f}N")
+plt.grid(True)
+plt.legend()
+plt.tight_layout()
+plt.show()
