@@ -4,7 +4,7 @@ import os
 import re
 
 ########### CHANGE HERE ###########
-INPUT_DIR = "./Data_analysis/all_data"  # Directory containing CSV files
+INPUT_DIR = "./Data_analysis/data_release_time"  # Directory containing CSV files
 OUTPUT_FILE = "./Data_analysis/release_time_summary.csv"
 ####################################
 
@@ -51,6 +51,9 @@ for fname in os.listdir(INPUT_DIR):
             release_idx, peak_force = detect_release_time(force_ema)
             if release_idx is not None:
                 release_time = (time[release_idx] - off_trigger_time).total_seconds()
+                if peak_force < 1.0:
+                    #release_time = None
+                    print(f"Peak force too low in {fname}")
             else:
                 release_time = None
                 print(f"Release time not detected in {fname}")

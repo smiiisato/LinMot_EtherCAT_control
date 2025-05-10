@@ -12,7 +12,7 @@ import os
 import numpy as np
 
 # Constants
-CSV_FILE = "./Oszi_recoding20250428_110248_0/Oszi_recoding20250428_110248.csv"
+CSV_FILE = "./data_release_time/140V-flip-0.05-decayflip-0-alpha-0-0.csv"  # Path to the CSV file
 TITLE = CSV_FILE.split("/")[-1].split(".")[0]
 CYCLE_TIME = 0.0015  # seconds
 EMA_ALPHA = 0.07011191019798384  # Exponential Moving Average alpha
@@ -31,18 +31,15 @@ plot_idx = time < start_time + pd.Timedelta(seconds=1.5)
 # apply EMA to estimated_analog_force
 estimated_analog_force_ema_filtered = df["estimated_analog_force"].ewm(alpha=EMA_ALPHA, adjust=False).mean()
 
-# detect the force peak and 90% force drop point
 def detect_release_time(force_data, threshold=0.1):
     # Find the peak force
     peak_idx = np.argmax(force_data)
+    # list of indices where the force drops below the threshold
+    release_idx = np.where((force_data < threshold))[0]
+
+    # mask the release index to find the first one after the peak
+    masked_release_idx = release_idx[release_idx > peak_idx][0] if len(release_idx[release_idx > peak_idx]) > 0 else None
     peak_force = force_data[peak_idx]
-
-    # Calculate the threshold for release time
-    release_threshold = peak_force * threshold
-
-    # Find the index where the force drops below the threshold
-    release_idx = np.where((force_data < release_threshold))[0]
-    masked_release_idx = release_idx[release_idx > peak_idx][0] if len(release_idx) > 0 else None
 
     return masked_release_idx, peak_force
 
@@ -63,7 +60,7 @@ print(f"Release time: {release_time_seconds:.6f} seconds")
 plt.figure(figsize=(10, 5))
 plt.plot(time[plot_idx], estimated_analog_force_ema_filtered[plot_idx], label=f"Force EMA_alpha={EMA_ALPHA}", color='blue')
 plt.plot(time[plot_idx], df["analog_voltage"][plot_idx], label="Analog Voltage[V]", color='red')
-plt.axhline(y=peak_force * 0.1, color='green', linestyle='--', label="Release Threshold")
+plt.axhline(y=0.1, color='green', linestyle='--', label="Release Threshold")
 plt.axvline(x=time[plot_idx][release_idx], color='orange', linestyle='--', label="Release Time")
 plt.axvline(x=off_triger_time, color='purple', linestyle='--', label="Off Trigger Time")
 plt.xlabel("Time (s)")
