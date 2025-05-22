@@ -16,7 +16,7 @@ df = df.dropna(subset=["Engage time[s]"])
 # Define the fixed conditions
 fixed_conditions = {
     #"Decaying flipping period[s]": 0,
-    "Speed[mm/min]": 100,
+    #"Speed[mm/min]": 100,
     #"Decaying alpha": 0,
 }
 

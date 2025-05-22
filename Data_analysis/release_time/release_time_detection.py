@@ -12,24 +12,26 @@ import os
 import numpy as np
 
 # Constants
-CSV_FILE = "./data_release_time/140V-flip-0.05-decayflip-0-alpha-0-0.csv"  # Path to the CSV file
+CSV_FILE = "data_release_time/ReleaseTime2_0.12kV_flip_0_alpha_0_4.csv"  # Path to the CSV file
 TITLE = CSV_FILE.split("/")[-1].split(".")[0]
 CYCLE_TIME = 0.0015  # seconds
 EMA_ALPHA = 0.07011191019798384  # Exponential Moving Average alpha
 
 # reading the CSV file
-df = pd.read_csv(os.path.join(os.path.dirname(__file__), CSV_FILE))
+df = pd.read_csv(
+                os.path.join(os.path.dirname(__file__), CSV_FILE),
+                parse_dates=["Time(s)"],)
 
 # Analog voltage for voltage status
-analog_voltage = df["analog_voltage"]
+analog_voltage = df["Engage_flag"] #df["analog_voltage"]
 
 # read time as datetime
-time = pd.to_datetime(df["Timestamp"], format="ISO8601")
+time = df["Time(s)"]
 start_time = time[0]
 plot_idx = time < start_time + pd.Timedelta(seconds=1.5)
 
 # apply EMA to estimated_analog_force
-estimated_analog_force_ema_filtered = df["estimated_analog_force"].ewm(alpha=EMA_ALPHA, adjust=False).mean()
+estimated_analog_force_ema_filtered = df["Force(N)"].ewm(alpha=EMA_ALPHA, adjust=False).mean()
 
 def detect_release_time(force_data, threshold=0.1):
     # Find the peak force
@@ -59,7 +61,7 @@ print(f"Release time: {release_time_seconds:.6f} seconds")
 # Plotting the measured force
 plt.figure(figsize=(10, 5))
 plt.plot(time[plot_idx], estimated_analog_force_ema_filtered[plot_idx], label=f"Force EMA_alpha={EMA_ALPHA}", color='blue')
-plt.plot(time[plot_idx], df["analog_voltage"][plot_idx], label="Analog Voltage[V]", color='red')
+plt.plot(time[plot_idx], df["Engage_flag"][plot_idx], label="Analog Voltage[V]", color='red')
 plt.axhline(y=0.1, color='green', linestyle='--', label="Release Threshold")
 plt.axvline(x=time[plot_idx][release_idx], color='orange', linestyle='--', label="Release Time")
 plt.axvline(x=off_triger_time, color='purple', linestyle='--', label="Off Trigger Time")

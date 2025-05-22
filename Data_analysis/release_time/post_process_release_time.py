@@ -4,8 +4,8 @@ import os
 import re
 
 ########### CHANGE HERE ###########
-INPUT_DIR = "./Data_analysis/data_release_time"  # Directory containing CSV files
-OUTPUT_FILE = "./Data_analysis/release_time_summary.csv"
+INPUT_DIR = "data_release_time/"  # Directory containing CSV files
+OUTPUT_FILE = "Data_analysis/release_time_summary.csv"
 ####################################
 
 # Constants
@@ -21,54 +21,63 @@ def detect_release_time(force_data):
     return masked_release_idx, peak_force
 
 def extract_parameters(filename):
-    match = re.match(r"(\d+)V-flip-([\d.]+)-decayflip-([\d.]+)-alpha-([\d.]+)-([\d.]+)\.csv", filename)
-    if match:
-        voltage = float(match.group(1))
+    #match1 = re.match(r"ReleaseTime_([\d.]+)kV_flip_([\d.]+)_alpha_([\d.]+)_([\d.]+)\.csv", filename)
+    match1 = None
+    #match2 = re.match(r"ReleaseTime2_([\d.]+)kV_flip_([\d.]+)_alpha_([\d.]+)_([\d.]+)\.csv", filename)
+    match2 = None
+    match3 = re.match(r"ReleaseTime3_([\d.]+)kV_flip_([\d.]+)_alpha_([\d.]+)_([\d.]+)\.csv", filename)
+    if match1 or match2 or match3:
+        match = match1 or match2 or match3
+        voltage = float(match.group(1)) * 1000  # Convert kV to V
         flipping = float(match.group(2))
-        decay_flipping = float(match.group(3))
-        alpha = float(match.group(4))
-        return voltage, flipping, decay_flipping, alpha
-    return None, None, None, None
+        #decay_flipping = float(match.group(3))
+        alpha = float(match.group(3))
+        return voltage, flipping, alpha
+    
+    return None, None, None
 
 # List all CSV files in the directory
 results = []
 
-for fname in os.listdir(INPUT_DIR):
+for fname in os.listdir(os.path.join(os.path.dirname(__file__), INPUT_DIR)):
     if fname.endswith(".csv"):
-        voltage, flip, decayflip, alpha = extract_parameters(fname)
-        if None in (voltage, flip, decayflip, alpha):
+        voltage, flip, alpha = extract_parameters(fname)
+        if None in (voltage, flip, alpha):
             print(f"Skipped: {fname} (Invalid filename format)")
             continue
 
         filepath = os.path.join(INPUT_DIR, fname)
         try:
-            df = pd.read_csv(filepath)
-            analog_voltage = df["analog_voltage"]
-            force_ema = df["estimated_analog_force"].ewm(alpha=EMA_ALPHA, adjust=False).mean()
-            time = pd.to_datetime(df["Timestamp"], format="ISO8601")
+            #df = pd.read_csv(filepath)
+            df = pd.read_csv(
+                os.path.join(os.path.dirname(__file__), filepath),
+                parse_dates=["Time(s)"],)
+            analog_voltage = df["Engage_flag"]  # df["analog_voltage"]
+            force_ema = df["Force(N)"].ewm(alpha=EMA_ALPHA, adjust=False).mean()
+            time = df["Time(s)"]
             off_trigger_time = time[analog_voltage < 0.5].iloc[0]
 
             release_idx, peak_force = detect_release_time(force_ema)
             if release_idx is not None:
                 release_time = (time[release_idx] - off_trigger_time).total_seconds()
-                if peak_force < 1.0:
+                if peak_force < 0.2:
                     #release_time = None
                     print(f"Peak force too low in {fname}")
             else:
                 release_time = None
                 print(f"Release time not detected in {fname}")
 
-            if alpha > 0:
+            """ if alpha > 0:
                 decay_duration = 0.15
             else:
-                decay_duration = 0.0
+                decay_duration = 0.0 """
 
             results.append({
                 "Voltage[V]": voltage,
                 "Flipping period[s]": flip,
-                "Decaying flipping period[s]": decayflip,
+                #"Decaying flipping period[s]": decayflip,
                 "Decaying alpha": alpha,
-                "Decaying duration[s]": decay_duration,
+                #"Decaying duration[s]": decay_duration,
                 "Release time[s]": release_time
             })
         except Exception as e:
@@ -77,7 +86,8 @@ for fname in os.listdir(INPUT_DIR):
 # Save results to CSV
 results_df = pd.DataFrame(results)
 results_df = results_df.sort_values(
-    by=["Voltage[V]", "Flipping period[s]", "Decaying alpha", "Decaying flipping period[s]"]
+    #by=["Voltage[V]", "Flipping period[s]", "Decaying alpha", "Decaying flipping period[s]"]
+    by=["Voltage[V]", "Flipping period[s]"]
 )
 results_df.to_csv(OUTPUT_FILE, index=False)
 print(f"Summary saved to {OUTPUT_FILE}")

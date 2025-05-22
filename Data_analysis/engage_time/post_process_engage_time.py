@@ -4,7 +4,7 @@ import os
 import re
 
 ########### CHANGE HERE ###########
-INPUT_DIR = "./Data_analysis/data_engage_time"  # Directory containing CSV files
+INPUT_DIR = "data_engage_time/"  # Directory containing CSV files
 OUTPUT_FILE = "./Data_analysis/engage_time_summary.csv"
 ####################################
 
@@ -24,30 +24,32 @@ def detect_engage_time(force_data, threshold=1.0):
 
 
 def extract_parameters(filename):
-    match = re.match(r"engage-(\d+)V-flip-([\d.]+)-speed-([\d.]+)-([\d.]+)\.csv", filename)
+    match = re.match(r"EngageTime_(\d.+)kV_flip_([\d.]+)_([\d.]+)\.csv", filename)
     if match:
-        voltage = float(match.group(1))
+        voltage = float(match.group(1)) * 1000  # Convert kV to V
         flipping = float(match.group(2))
-        speed = float(match.group(3))
-        return voltage, flipping, speed
-    return None, None, None
+        return voltage, flipping
+    return None, None
 
 # List all CSV files in the directory
 results = []
 
-for fname in os.listdir(INPUT_DIR):
+for fname in os.listdir(os.path.join(os.path.dirname(__file__), INPUT_DIR)):
     if fname.endswith(".csv"):
-        voltage, flip, speed = extract_parameters(fname)
-        if None in (voltage, flip, speed):
+        voltage, flip = extract_parameters(fname)
+        if None in (voltage, flip):
             print(f"Skipped: {fname} (Invalid filename format)")
             continue
 
         filepath = os.path.join(INPUT_DIR, fname)
         try:
-            df = pd.read_csv(filepath)
-            analog_voltage = df["analog_voltage"]
-            force_ema = df["estimated_analog_force"].ewm(alpha=EMA_ALPHA, adjust=False).mean()
-            time = pd.to_datetime(df["Timestamp"], format="ISO8601")
+            #df = pd.read_csv(filepath)
+            df = pd.read_csv(
+                os.path.join(os.path.dirname(__file__), filepath),
+                parse_dates=["Time(s)"],)
+            analog_voltage = df["Engage_flag"]  # df["analog_voltage"]
+            force_ema = df["Force(N)"].ewm(alpha=EMA_ALPHA, adjust=False).mean()
+            time = df["Time(s)"]
             start_time = time[0]
 
             engage_idx, peak_force = detect_engage_time(force_ema)
@@ -63,7 +65,6 @@ for fname in os.listdir(INPUT_DIR):
             results.append({
                 "Voltage[V]": voltage,
                 "Flipping period[s]": flip,
-                "Speed[mm/min]": speed,
                 "Engage time[s]": engage_time
             })
         except Exception as e:
@@ -72,7 +73,7 @@ for fname in os.listdir(INPUT_DIR):
 # Save results to CSV
 results_df = pd.DataFrame(results)
 results_df = results_df.sort_values(
-    by=["Voltage[V]", "Flipping period[s]", "Speed[mm/min]"],
+    by=["Voltage[V]", "Flipping period[s]"],
 )
 results_df.to_csv(OUTPUT_FILE, index=False)
 print(f"Summary saved to {OUTPUT_FILE}")
